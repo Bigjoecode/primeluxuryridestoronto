@@ -1,0 +1,44 @@
+# ── Runtime output ───────────────────────────────────────────────────
+logs/*
+!logs/.gitkeep
+
+# Uploaded vehicle photos are content, not code — they live on the server.
+uploads/vehicles/*
+!uploads/vehicles/.gitkeep
+
+# ── Local / editor ───────────────────────────────────────────────────
+.vscode/
+.idea/
+*.code-workspace
+.kilocode/
+
+# ── OS junk ──────────────────────────────────────────────────────────
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+.DS_Store
+$RECYCLE.BIN/
+
+# ── Dependencies (not used, but guard against future additions) ──────
+vendor/
+node_modules/
+composer.lock
+
+# ── Temporary ────────────────────────────────────────────────────────
+*.tmp
+*.bak
+*.swp
+*~
+_probe.php
+
+# ── NOTE ─────────────────────────────────────────────────────────────
+# includes/config.php IS tracked, because it currently holds only
+# placeholders and the site will not run without it.
+#
+# Once you put REAL Stripe / Google Maps / SMTP / database credentials
+# in it, either keep this repository private, or stop tracking the file:
+#
+#     git rm --cached includes/config.php
+#     echo "includes/config.php" >> .gitignore
+#
+# and keep a copy of the placeholder version as config.example.php.

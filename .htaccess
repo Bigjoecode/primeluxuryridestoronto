@@ -1,0 +1,100 @@
+# =====================================================================
+#  Prime Luxury Rides Toronto — Apache configuration
+# =====================================================================
+
+# ── Default document ─────────────────────────────────────────────────
+DirectoryIndex index.php index.html
+
+# ── Character set ────────────────────────────────────────────────────
+AddDefaultCharset UTF-8
+
+# ── Force HTTPS (enable once your SSL certificate is installed) ───────
+# Uncomment these three lines on the live server.
+# <IfModule mod_rewrite.c>
+#   RewriteEngine On
+#   RewriteCond %{HTTPS} !=on
+#   RewriteRule ^(.*)$ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
+# </IfModule>
+
+# ── Drop the .php extension from URLs ────────────────────────────────
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+
+  # Dynamic sitemap served at the conventional /sitemap.xml
+  RewriteRule ^sitemap\.xml$ sitemap.php [L]
+
+  # /about  →  /about.php  (only when the .php file really exists)
+  RewriteCond %{REQUEST_FILENAME} !-d
+  RewriteCond %{REQUEST_FILENAME}\.php -f
+  RewriteRule ^(.*)$ $1.php [L]
+
+  # Redirect /about.php → /about so only one URL is indexed
+  RewriteCond %{THE_REQUEST} \s/+(.+?)\.php[\s?] [NC]
+  RewriteRule ^ /%1 [R=301,L]
+</IfModule>
+
+# ── Security headers ─────────────────────────────────────────────────
+<IfModule mod_headers.c>
+  Header always set X-Content-Type-Options "nosniff"
+  Header always set X-Frame-Options "SAMEORIGIN"
+  Header always set Referrer-Policy "strict-origin-when-cross-origin"
+  Header always set Permissions-Policy "geolocation=(self), microphone=(), camera=(), payment=(self)"
+
+  # Enable HSTS only after HTTPS is confirmed working.
+  # Header always set Strict-Transport-Security "max-age=31536000; includeSubDomains"
+
+  # Never cache PHP responses (booking/admin pages are per-session).
+  <FilesMatch "\.php$">
+    Header set Cache-Control "no-store, no-cache, must-revalidate"
+  </FilesMatch>
+</IfModule>
+
+# ── Compression ──────────────────────────────────────────────────────
+<IfModule mod_deflate.c>
+  AddOutputFilterByType DEFLATE text/html text/plain text/xml text/css
+  AddOutputFilterByType DEFLATE application/javascript application/x-javascript
+  AddOutputFilterByType DEFLATE application/json application/xml
+  AddOutputFilterByType DEFLATE image/svg+xml
+</IfModule>
+
+# ── Browser caching for static assets ────────────────────────────────
+<IfModule mod_expires.c>
+  ExpiresActive On
+  ExpiresByType text/css                "access plus 1 year"
+  ExpiresByType application/javascript  "access plus 1 year"
+  ExpiresByType image/jpeg              "access plus 6 months"
+  ExpiresByType image/png               "access plus 6 months"
+  ExpiresByType image/webp              "access plus 6 months"
+  ExpiresByType image/svg+xml           "access plus 6 months"
+  ExpiresByType image/x-icon            "access plus 1 year"
+  ExpiresByType font/woff2              "access plus 1 year"
+  ExpiresDefault                        "access plus 2 days"
+</IfModule>
+
+# ── Protect sensitive files and folders ──────────────────────────────
+<FilesMatch "^(config\.php|composer\.(json|lock)|READ\.md|README\.md|\.env|.*\.sql|.*\.log)$">
+  Require all denied
+</FilesMatch>
+
+RedirectMatch 403 ^/logs(/.*)?$
+RedirectMatch 403 ^/sql(/.*)?$
+RedirectMatch 403 ^/includes/.*\.php$
+
+# Block script execution inside the uploads folder.
+<IfModule mod_rewrite.c>
+  RewriteRule ^uploads/.*\.(php|phtml|phar|pl|py|cgi|sh)$ - [F,L]
+</IfModule>
+
+# Hide dotfiles
+<FilesMatch "^\.">
+  Require all denied
+</FilesMatch>
+
+# ── Error documents ──────────────────────────────────────────────────
+ErrorDocument 404 /404.php
+
+# ── Upload limits (photos up to 6 MB) ────────────────────────────────
+<IfModule mod_php.c>
+  php_value upload_max_filesize 8M
+  php_value post_max_size 10M
+</IfModule>

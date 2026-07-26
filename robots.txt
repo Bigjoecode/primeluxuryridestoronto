@@ -1,0 +1,27 @@
+User-agent: *
+Allow: /
+
+# Private / functional areas
+Disallow: /admin/
+Disallow: /api/
+Disallow: /includes/
+Disallow: /logs/
+Disallow: /sql/
+Disallow: /uploads/
+Disallow: /confirmation.php
+Disallow: /confirmation
+
+# Common crawlers — be explicit so nothing is guessed
+User-agent: Googlebot
+Allow: /
+Disallow: /admin/
+Disallow: /api/
+Disallow: /confirmation
+
+User-agent: Bingbot
+Allow: /
+Disallow: /admin/
+Disallow: /api/
+Disallow: /confirmation
+
+Sitemap: https://primeluxuryridestoronto.ca/sitemap.xml
