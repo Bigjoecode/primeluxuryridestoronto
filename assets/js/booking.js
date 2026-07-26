@@ -508,7 +508,21 @@
   /* ── Init ────────────────────────────────────────────────────── */
 
   applyServiceRules();
-  goTo(1);
+
+  // Open on the first step the hero quick-search did NOT already answer,
+  // but never skip past a step whose fields failed validation.
+  var start = parseInt(cfg.startStep, 10) || 1;
+  start = Math.max(1, Math.min(TOTAL_STEPS, start));
+  while (start > 1 && !validateStep(start - 1)) {
+    start--;
+  }
+  // validateStep paints errors as a side effect; clear them on first view.
+  form.querySelectorAll('[data-generated-error]').forEach(function (el) { el.remove(); });
+  form.querySelectorAll('[aria-invalid="true"]').forEach(function (el) {
+    el.removeAttribute('aria-invalid');
+  });
+
+  goTo(start);
   if (serviceType() && vehicleId()) requestQuote();
 
   // If the server bounced us back with errors, show them.

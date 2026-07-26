@@ -47,13 +47,16 @@ require __DIR__ . '/includes/header.php';
           <?= icon('phone') ?><span>Call Us</span>
         </a>
       </div>
+    </div>
 
-      <div class="trust-bar">
-        <div class="trust-item"><?= icon('shield-check') ?><span>Licensed &amp; Commercially Insured</span></div>
-        <div class="trust-item"><?= icon('award') ?><span>Professional Chauffeurs</span></div>
-        <div class="trust-item"><?= icon('plane') ?><span>Flight Tracking Included</span></div>
-        <div class="trust-item"><?= icon('headset') ?><span>24/7 Availability</span></div>
-      </div>
+    <!-- Full container width: the five search fields need the room -->
+    <?php require __DIR__ . '/includes/quick-search.php'; ?>
+
+    <div class="trust-bar">
+      <div class="trust-item"><?= icon('shield-check') ?><span>Licensed &amp; Commercially Insured</span></div>
+      <div class="trust-item"><?= icon('award') ?><span>Professional Chauffeurs</span></div>
+      <div class="trust-item"><?= icon('plane') ?><span>Flight Tracking Included</span></div>
+      <div class="trust-item"><?= icon('headset') ?><span>24/7 Availability</span></div>
     </div>
   </div>
 

@@ -169,6 +169,53 @@
     syncOptions();
   }
 
+  /* ── Hero quick search ───────────────────────────────────────── */
+  var qs = document.getElementById('quickSearch');
+  if (qs) {
+    var qsDropoff = qs.querySelector('[data-qs-dropoff]');
+    var qsHours   = qs.querySelector('[data-qs-hours]');
+    var qsFromEl  = qs.querySelector('#qs_from');
+
+    var qsService = function () {
+      var el = qs.querySelector('[data-qs-service]:checked');
+      return el ? el.value : 'airport';
+    };
+
+    // Hourly hire has no destination — it needs a duration instead.
+    var qsApplyService = function () {
+      var hourly = qsService() === 'hourly';
+      if (qsDropoff) qsDropoff.hidden = hourly;
+      if (qsHours)   qsHours.hidden   = !hourly;
+
+      var lbl = qs.querySelector('label[for="qs_from"]');
+      if (lbl) lbl.textContent = hourly ? 'Start point' : 'Pickup';
+    };
+
+    qs.addEventListener('change', function (ev) {
+      if (ev.target.matches('[data-qs-service]')) qsApplyService();
+    });
+
+    // Keep the resulting URL clean: drop empty fields, and never send a
+    // drop-off (or hours) that does not apply to the chosen service.
+    qs.addEventListener('submit', function () {
+      var hourly = qsService() === 'hourly';
+      qs.querySelectorAll('input, select').forEach(function (f) {
+        if (!f.name) return;
+        var irrelevant = (hourly && f.name === 'to') || (!hourly && f.name === 'hours');
+        if (irrelevant || String(f.value).trim() === '') {
+          f.disabled = true;   // disabled fields are omitted from the query string
+        }
+      });
+    });
+
+    // Focus the first field when arriving from an in-page "Book" link.
+    if (location.hash === '#search' && qsFromEl) {
+      qsFromEl.focus({ preventScroll: true });
+    }
+
+    qsApplyService();
+  }
+
   /* ── Footer year (in case of cached HTML) ────────────────────── */
   document.querySelectorAll('[data-year]').forEach(function (el) {
     el.textContent = String(new Date().getFullYear());

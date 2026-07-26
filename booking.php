@@ -15,11 +15,51 @@ $vehicles  = get_vehicles();
 $errors    = [];
 $submitted = null;
 
-// Pre-selection from query string (e.g. from the fleet or rates page)
+// ── Pre-fill from the query string ─────────────────────────────────
+// Used by the fleet/rates pages and by the hero quick-search widget.
 $pre_vehicle = isset($_GET['vehicle']) ? get_vehicle_by_slug((string)$_GET['vehicle']) : null;
 $pre_service = (string)($_GET['service'] ?? '');
-$pre_to      = (string)($_GET['to'] ?? '');
+$pre_from    = trim((string)($_GET['from'] ?? ''));
+$pre_to      = trim((string)($_GET['to'] ?? ''));
+$pre_pax     = (int)($_GET['pax'] ?? 0);
+$pre_hours   = (int)($_GET['hours'] ?? 0);
 $is_rental   = (($_GET['type'] ?? '') === 'rental');
+
+if ($is_rental) {
+    $pre_service = 'rental';
+}
+if (!in_array($pre_service, ['airport', 'city', 'city_to_city', 'hourly', 'rental'], true)) {
+    $pre_service = '';
+}
+
+// Normalise an incoming date/time into the datetime-local format.
+$pre_when = '';
+$when_raw = trim((string)($_GET['when'] ?? ''));
+if ($when_raw !== '') {
+    try {
+        $pre_when = (new DateTime($when_raw))->format('Y-m-d\TH:i');
+    } catch (Throwable $ex) {
+        $pre_when = '';
+    }
+}
+
+/**
+ * Which step should the wizard open on?
+ * Anything the quick-search already answered is skipped, so the customer
+ * lands on the first question still outstanding rather than re-typing.
+ */
+$start_step = 1;
+if ($pre_service !== '') {
+    $needs_dropoff = in_array($pre_service, ['airport', 'city', 'city_to_city'], true);
+    $journey_done  = $pre_from !== ''
+                  && $pre_when !== ''
+                  && (!$needs_dropoff || $pre_to !== '');
+
+    $start_step = $journey_done ? 3 : 2;      // vehicle, or journey
+    if ($journey_done && $pre_vehicle) {
+        $start_step = 4;                      // straight to customer details
+    }
+}
 
 // ── Handle submission ──────────────────────────────────────────────
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -298,7 +338,7 @@ require __DIR__ . '/includes/header.php';
                 ['hourly',       'clock',     'Hourly Chauffeur',      'Car and chauffeur on standby. Minimum 3 hours (4 on the Maybach).'],
                 ['rental',       'key',       'Vehicle Rental',        'Self-drive hire by the day or week.'],
               ];
-              $checked_service = old('service_type', $is_rental ? 'rental' : $pre_service);
+              $checked_service = old('service_type', $pre_service);
               foreach ($service_opts as [$val, $ico, $title, $desc]): ?>
               <label class="option">
                 <input type="radio" name="service_type" value="<?= e($val) ?>"
@@ -326,7 +366,7 @@ require __DIR__ . '/includes/header.php';
                 Pickup address <span class="req" aria-hidden="true">*</span>
               </label>
               <input class="input" type="text" id="pickup_address" name="pickup_address"
-                     value="<?= e(old('pickup_address')) ?>"
+                     value="<?= e(old('pickup_address', $pre_from)) ?>"
                      placeholder="e.g. 100 Front St W, Toronto"
                      autocomplete="street-address" required>
               <span class="field__hint" id="pickupHint">Street address, hotel, airport terminal or postcode.</span>
@@ -349,7 +389,7 @@ require __DIR__ . '/includes/header.php';
                   Pickup date &amp; time <span class="req" aria-hidden="true">*</span>
                 </label>
                 <input class="input" type="datetime-local" id="pickup_at" name="pickup_at"
-                       value="<?= e(old('pickup_at')) ?>" min="<?= e($min_pickup) ?>" required>
+                       value="<?= e(old('pickup_at', $pre_when)) ?>" min="<?= e($min_pickup) ?>" required>
                 <span class="field__hint">At least <?= MIN_LEAD_TIME_HOURS ?> hours from now.</span>
               </div>
 
@@ -367,7 +407,7 @@ require __DIR__ . '/includes/header.php';
                   How many hours? <span class="req" aria-hidden="true">*</span>
                 </label>
                 <input class="input" type="number" id="hours" name="hours" min="1" max="24" step="1"
-                       value="<?= e(old('hours', '3')) ?>" inputmode="numeric">
+                       value="<?= e(old('hours', $pre_hours > 0 ? (string)$pre_hours : '3')) ?>" inputmode="numeric">
                 <span class="field__hint" id="hoursHint">Minimum 3 hours on most vehicles.</span>
               </div>
             </div>
@@ -470,7 +510,7 @@ require __DIR__ . '/includes/header.php';
                 <label class="field__label" for="passengers">Passengers</label>
                 <input class="input" type="number" id="passengers" name="passengers"
                        min="1" max="8" step="1" inputmode="numeric"
-                       value="<?= e(old('passengers', '1')) ?>">
+                       value="<?= e(old('passengers', $pre_pax > 0 ? (string)$pre_pax : '1')) ?>">
                 <span class="field__hint" id="passengersHint"></span>
               </div>
               <div class="field">
@@ -560,6 +600,7 @@ require __DIR__ . '/includes/header.php';
     csrf:     <?= e_json(csrf_token()) ?>,
     quoteUrl: 'api/quote.php',
     minHoursDefault: 3,
+    startStep: <?= (int)$start_step ?>,
     mapsEnabled: <?= maps_enabled() ? 'true' : 'false' ?>
   };
 </script>
