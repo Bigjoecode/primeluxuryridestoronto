@@ -22,6 +22,7 @@ CREATE TABLE `vehicles` (
   `passengers`      TINYINT UNSIGNED NOT NULL DEFAULT 3,
   `luggage`         TINYINT UNSIGNED NOT NULL DEFAULT 3,
   `image`           VARCHAR(255) DEFAULT NULL,               -- uploads/vehicles/xxx.jpg
+  `plate`           VARCHAR(20)  DEFAULT NULL,               -- shown to the customer on assignment
   `features`        TEXT,                                    -- newline-separated
 
   -- Dynamic pricing (used when distance < flat_rate_threshold_km)
@@ -79,9 +80,11 @@ DROP TABLE IF EXISTS `bookings`;
 CREATE TABLE `bookings` (
   `id`              INT UNSIGNED NOT NULL AUTO_INCREMENT,
   `reference`       VARCHAR(24) NOT NULL,          -- PLR-2026-0001
+  `customer_id`     INT UNSIGNED DEFAULT NULL,     -- set when booked while signed in
 
   `booking_type`    ENUM('ride','rental') NOT NULL DEFAULT 'ride',
   `service_type`    ENUM('airport','city','city_to_city','hourly','rental') NOT NULL,
+  `is_return`       TINYINT(1) NOT NULL DEFAULT 0,
 
   -- Customer
   `full_name`       VARCHAR(150) NOT NULL,
@@ -91,8 +94,10 @@ CREATE TABLE `bookings` (
   -- Trip
   `pickup_address`  VARCHAR(255) NOT NULL,
   `dropoff_address` VARCHAR(255) DEFAULT NULL,
+  `stops`           TEXT DEFAULT NULL,             -- JSON array of intermediate addresses
   `pickup_at`       DATETIME NOT NULL,
   `return_at`       DATETIME DEFAULT NULL,         -- rentals
+  `return_at_trip`  DATETIME DEFAULT NULL,         -- return leg of a return trip
   `hours`           TINYINT UNSIGNED DEFAULT NULL, -- hourly bookings
   `flight_number`   VARCHAR(40) DEFAULT NULL,
 
@@ -121,7 +126,10 @@ CREATE TABLE `bookings` (
                       NOT NULL DEFAULT 'unpaid',
   `stripe_session_id` VARCHAR(255) DEFAULT NULL,
   `stripe_payment_intent` VARCHAR(255) DEFAULT NULL,
-  `assigned_driver` VARCHAR(150) DEFAULT NULL,
+  `assigned_driver` VARCHAR(150) DEFAULT NULL,     -- name snapshot, survives roster deletion
+  `driver_id`       INT UNSIGNED DEFAULT NULL,
+  `track_token`     VARCHAR(32) DEFAULT NULL,      -- powers the public /t/<token> page
+  `notified_at`     DATETIME DEFAULT NULL,
   `admin_notes`     TEXT,
 
   `ip_address`      VARCHAR(45) DEFAULT NULL,
@@ -132,6 +140,9 @@ CREATE TABLE `bookings` (
   KEY `idx_status_created` (`status`, `created_at`),
   KEY `idx_pickup_at` (`pickup_at`),
   KEY `idx_email` (`email`),
+  UNIQUE KEY `uq_track_token` (`track_token`),
+  KEY `idx_customer` (`customer_id`),
+  KEY `idx_driver` (`driver_id`),
   CONSTRAINT `fk_booking_vehicle` FOREIGN KEY (`vehicle_id`)
     REFERENCES `vehicles` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -153,6 +164,58 @@ CREATE TABLE `enquiries` (
   `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   KEY `idx_read_created` (`is_read`, `created_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------
+--  CUSTOMERS  (accounts, saved addresses, operator-set membership)
+-- ---------------------------------------------------------------------
+DROP TABLE IF EXISTS `customer_addresses`;
+DROP TABLE IF EXISTS `customers`;
+CREATE TABLE `customers` (
+  `id`              INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `email`           VARCHAR(190) NOT NULL,
+  `password_hash`   VARCHAR(255) NOT NULL,
+  `full_name`       VARCHAR(150) NOT NULL,
+  `phone`           VARCHAR(40)  DEFAULT NULL,
+  -- Set by the operator in the admin panel, never by the customer.
+  `membership_tier` ENUM('none','elite','vip') NOT NULL DEFAULT 'none',
+  `membership_note` VARCHAR(255) DEFAULT NULL,
+  `is_active`       TINYINT(1) NOT NULL DEFAULT 1,
+  `last_login_at`   DATETIME DEFAULT NULL,
+  `created_at`      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_customer_email` (`email`),
+  KEY `idx_membership` (`membership_tier`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE `customer_addresses` (
+  `id`          INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `customer_id` INT UNSIGNED NOT NULL,
+  `label`       VARCHAR(60)  NOT NULL DEFAULT 'Saved place',
+  `address`     VARCHAR(255) NOT NULL,
+  `sort_order`  SMALLINT NOT NULL DEFAULT 0,
+  `created_at`  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_customer` (`customer_id`, `sort_order`),
+  CONSTRAINT `fk_addr_customer` FOREIGN KEY (`customer_id`)
+    REFERENCES `customers` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------
+--  DRIVERS  (chauffeur roster)
+-- ---------------------------------------------------------------------
+DROP TABLE IF EXISTS `drivers`;
+CREATE TABLE `drivers` (
+  `id`         INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `full_name`  VARCHAR(150) NOT NULL,
+  `phone`      VARCHAR(40)  NOT NULL,
+  `email`      VARCHAR(190) DEFAULT NULL,
+  `licence_no` VARCHAR(60)  DEFAULT NULL,
+  `notes`      TEXT,
+  `is_active`  TINYINT(1) NOT NULL DEFAULT 1,
+  `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_active` (`is_active`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------
@@ -325,6 +388,9 @@ INSERT INTO `settings` (`key_name`,`value`,`label`,`group_name`,`input_type`,`so
  ('elite_discount','30','Elite member discount (%)','pricing','number',3),
  ('vip_discount','40','VIP member discount (%)','pricing','number',4),
  ('deposit_percent','100','Charge at booking (% of total)','pricing','number',5),
+ ('return_discount','10','Return-trip discount (%)','pricing','number',6),
+ ('stop_fee','15','Fee per additional stop ($)','pricing','number',7),
+ ('max_stops','3','Maximum additional stops','pricing','number',8),
  ('hero_title','Luxury Chauffeur Services in Toronto','Home hero headline','content','text',1),
  ('hero_subtitle','Premium airport transfers, corporate travel, events & more.','Home hero sub-headline','content','textarea',2),
  ('about_mission','To redefine private ground transportation in the Greater Toronto Area by pairing an impeccably maintained luxury fleet with chauffeurs who treat every journey as a matter of personal pride.','Mission statement','content','textarea',3),

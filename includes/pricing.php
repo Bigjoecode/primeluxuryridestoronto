@@ -248,6 +248,51 @@ function calculate_quote(array $in): array
         }
     }
 
+    // ── Additional stops ───────────────────────────────────────────
+    // Hourly hire already covers unlimited stops within the booked time.
+    $stops = 0;
+    if ($service !== 'hourly' && $service !== 'rental') {
+        $max_stops = (int)setting_num('max_stops', 3);
+        $stops     = max(0, min($max_stops, (int)($in['stops'] ?? 0)));
+        $stop_fee  = setting_num('stop_fee', 15);
+
+        if ($stops > 0 && $stop_fee > 0) {
+            $stops_total = $stops * $stop_fee;
+            $subtotal   += $stops_total;
+            $out['lines'][] = [
+                'label'  => sprintf('%d extra stop%s × %s', $stops, $stops > 1 ? 's' : '', money_short($stop_fee)),
+                'amount' => $stops_total,
+            ];
+        }
+    }
+    $out['stops'] = $stops;
+
+    // ── Return trip ────────────────────────────────────────────────
+    // The return leg mirrors the outbound, so it costs the same before
+    // any return discount. Not offered on rentals (a rental already has
+    // a return date) or hourly hire (which is booked by duration).
+    $is_return = !empty($in['is_return'])
+              && $service !== 'rental'
+              && $service !== 'hourly';
+
+    if ($is_return) {
+        $outbound = $subtotal;
+        $subtotal += $outbound;
+        $out['lines'][] = ['label' => 'Return leg', 'amount' => $outbound];
+
+        $ret_pct = max(0.0, min(100.0, setting_num('return_discount', 10)));
+        if ($ret_pct > 0) {
+            $ret_off   = round($subtotal * $ret_pct / 100, 2);
+            $subtotal -= $ret_off;
+            $out['lines'][] = [
+                'label'  => sprintf('Return-trip discount (%s%%)', rtrim(rtrim(number_format($ret_pct, 1), '0'), '.')),
+                'amount' => -$ret_off,
+            ];
+            $out['return_discount'] = $ret_off;
+        }
+    }
+    $out['is_return'] = $is_return;
+
     // ── Discount → HST → total ─────────────────────────────────────
     $subtotal = round((float)$subtotal, 2);
 
@@ -297,5 +342,8 @@ function quote_snapshot(array $q): string
         'duration_min'     => $q['duration_min']     ?? null,
         'hours'            => $q['hours']            ?? null,
         'days'             => $q['days']             ?? null,
+        'stops'            => $q['stops']            ?? 0,
+        'is_return'        => $q['is_return']        ?? false,
+        'return_discount'  => $q['return_discount']  ?? 0,
     ], JSON_UNESCAPED_UNICODE);
 }

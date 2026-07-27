@@ -5,6 +5,13 @@
  */
 require_once __DIR__ . '/includes/pricing.php';
 require_once __DIR__ . '/includes/mailer.php';
+require_once __DIR__ . '/includes/customer.php';
+
+// Membership is read from the signed-in account, never from the form —
+// otherwise anyone could select "VIP" and take 40% off.
+$cust          = customer();
+$cust_tier     = $cust ? (string)$cust['membership_tier'] : 'none';
+$cust_discount = membership_discount($cust_tier);
 
 $page_slug        = 'booking';
 $page_title       = 'Book a Ride';
@@ -81,7 +88,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $luggage    = max(0, (int)($_POST['luggage'] ?? 0));
         $flight     = trim((string)($_POST['flight_number'] ?? ''));
         $notes      = trim((string)($_POST['notes'] ?? ''));
-        $membership = (string)($_POST['membership'] ?? 'none');
+        $membership = $cust_tier;                       // account-verified only
+        $is_return  = !empty($_POST['is_return']);
+        $stops_in   = array_values(array_filter(
+            array_map('trim', (array)($_POST['stops'] ?? [])),
+            fn($v) => $v !== ''
+        ));
+        $return_at_trip = trim((string)($_POST['return_at_trip'] ?? ''));
         $distance   = (float)($_POST['distance_km'] ?? 0);
         $duration   = (float)($_POST['duration_min'] ?? 0);
 
@@ -154,6 +167,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 'pickup'       => $pickup,
                 'dropoff'      => $dropoff,
                 'membership'   => $membership,
+                'is_return'    => $is_return,
+                'stops'        => count($stops_in),
             ]);
 
             if (!$quote['ok']) {
@@ -162,24 +177,44 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $vehicle = $quote['vehicle'];
                 $ref     = next_booking_reference();
 
+                // Return leg date, when a return trip was requested.
+                $ret_trip_dt = null;
+                if (($quote['is_return'] ?? false) && $return_at_trip !== '') {
+                    try {
+                        $candidate = new DateTime($return_at_trip);
+                        if ($pickup_dt && $candidate > $pickup_dt) {
+                            $ret_trip_dt = $candidate;
+                        }
+                    } catch (Throwable $ex) {
+                        $ret_trip_dt = null;
+                    }
+                }
+
                 try {
                     db_exec(
                         'INSERT INTO `bookings`
-                          (`reference`,`booking_type`,`service_type`,`full_name`,`email`,`phone`,
-                           `pickup_address`,`dropoff_address`,`pickup_at`,`return_at`,`hours`,
+                          (`reference`,`customer_id`,`booking_type`,`service_type`,`is_return`,
+                           `full_name`,`email`,`phone`,
+                           `pickup_address`,`dropoff_address`,`stops`,`pickup_at`,`return_at`,
+                           `return_at_trip`,`hours`,
                            `flight_number`,`distance_km`,`duration_min`,`vehicle_id`,`vehicle_name`,
                            `passengers`,`luggage`,`notes`,`pricing_method`,`subtotal`,
-                           `membership_tier`,`discount`,`hst`,`total`,`price_breakdown`,`ip_address`)
-                         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+                           `membership_tier`,`discount`,`hst`,`total`,`price_breakdown`,
+                           `track_token`,`ip_address`)
+                         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
                         [
                             $ref,
+                            $cust ? (int)$cust['id'] : null,
                             $service === 'rental' ? 'rental' : 'ride',
                             $service,
+                            ($quote['is_return'] ?? false) ? 1 : 0,
                             $name, $email, $phone,
                             $pickup,
                             $dropoff !== '' ? $dropoff : null,
+                            $stops_in ? json_encode($stops_in, JSON_UNESCAPED_UNICODE) : null,
                             $pickup_dt->format('Y-m-d H:i:s'),
                             $return_dt ? $return_dt->format('Y-m-d H:i:s') : null,
+                            $ret_trip_dt ? $ret_trip_dt->format('Y-m-d H:i:s') : null,
                             ($quote['hours'] ?? 0) ?: null,
                             $flight !== '' ? $flight : null,
                             $distance > 0 ? $distance : null,
@@ -195,6 +230,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             $quote['hst'],
                             $quote['total'],
                             quote_snapshot($quote),
+                            bin2hex(random_bytes(8)),      // tracking token
                             client_ip(),
                         ]
                     );
@@ -361,6 +397,32 @@ require __DIR__ . '/includes/header.php';
             <h2 class="wizard-step__title">Where and when?</h2>
             <p class="wizard-step__lead">Tell us your pickup, destination and timing.</p>
 
+            <!-- One way / return -->
+            <div class="option-grid option-grid--2 mb-6" data-field="triptype">
+              <label class="option">
+                <input type="radio" name="is_return" value="0" data-trip-radio
+                       <?= old('is_return', '0') === '0' ? 'checked' : '' ?>>
+                <span class="option__icon"><?= icon('arrow-right') ?></span>
+                <span>
+                  <span class="option__title">One way</span>
+                  <span class="option__desc">A single journey.</span>
+                </span>
+                <span class="option__check"><?= icon('check') ?></span>
+              </label>
+
+              <label class="option">
+                <input type="radio" name="is_return" value="1" data-trip-radio
+                       <?= old('is_return', '0') === '1' ? 'checked' : '' ?>>
+                <span class="option__icon"><?= icon('route') ?></span>
+                <span>
+                  <span class="option__title">Return trip</span>
+                  <span class="option__desc">Book both legs together and save
+                    <?= (int)setting_num('return_discount', 10) ?>%.</span>
+                </span>
+                <span class="option__check"><?= icon('check') ?></span>
+              </label>
+            </div>
+
             <div class="field">
               <label class="field__label" for="pickup_address">
                 Pickup address <span class="req" aria-hidden="true">*</span>
@@ -381,6 +443,30 @@ require __DIR__ . '/includes/header.php';
                      placeholder="e.g. Toronto Pearson International Airport"
                      autocomplete="street-address">
               <span class="field__hint">For city-to-city trips, naming the city gets you our published flat rate.</span>
+            </div>
+
+            <!-- Additional stops -->
+            <div class="field" data-field="stops">
+              <span class="field__label">Additional stops</span>
+              <div id="stopList" style="display:grid;gap:var(--s-3);"></div>
+              <button type="button" class="btn btn--outline btn--sm mt-4" id="addStopBtn"
+                      style="justify-self:start;">
+                <?= icon('plus') ?><span>Add a stop</span>
+              </button>
+              <span class="field__hint">
+                <?= money_short(setting_num('stop_fee', 15)) ?> per extra stop, up to
+                <?= (int)setting_num('max_stops', 3) ?>. Hourly hire includes unlimited stops.
+              </span>
+            </div>
+
+            <!-- Return leg date -->
+            <div class="field" data-field="returntrip" hidden>
+              <label class="field__label" for="return_at_trip">
+                Return date &amp; time <span class="req" aria-hidden="true">*</span>
+              </label>
+              <input class="input" type="datetime-local" id="return_at_trip" name="return_at_trip"
+                     value="<?= e(old('return_at_trip')) ?>">
+              <span class="field__hint">When you would like collecting for the journey back.</span>
             </div>
 
             <div class="field-row field-row--2">
@@ -483,7 +569,7 @@ require __DIR__ . '/includes/header.php';
                 Full name <span class="req" aria-hidden="true">*</span>
               </label>
               <input class="input" type="text" id="full_name" name="full_name"
-                     value="<?= e(old('full_name')) ?>" autocomplete="name" required>
+                     value="<?= e(old('full_name', $cust['full_name'] ?? '')) ?>" autocomplete="name" required>
             </div>
 
             <div class="field-row field-row--2">
@@ -492,7 +578,7 @@ require __DIR__ . '/includes/header.php';
                   Email <span class="req" aria-hidden="true">*</span>
                 </label>
                 <input class="input" type="email" id="email" name="email"
-                       value="<?= e(old('email')) ?>" autocomplete="email"
+                       value="<?= e(old('email', $cust['email'] ?? '')) ?>" autocomplete="email"
                        inputmode="email" required>
               </div>
               <div class="field">
@@ -500,7 +586,7 @@ require __DIR__ . '/includes/header.php';
                   Phone <span class="req" aria-hidden="true">*</span>
                 </label>
                 <input class="input" type="tel" id="phone" name="phone"
-                       value="<?= e(old('phone')) ?>" autocomplete="tel"
+                       value="<?= e(old('phone', $cust['phone'] ?? '')) ?>" autocomplete="tel"
                        inputmode="tel" placeholder="+1 (416) 000-0000" required>
               </div>
             </div>
@@ -521,22 +607,20 @@ require __DIR__ . '/includes/header.php';
               </div>
             </div>
 
-            <div class="field">
-              <label class="field__label" for="membership">Membership</label>
-              <select class="select" id="membership" name="membership">
-                <?php
-                $tiers = [
-                  'none'  => 'Not a member',
-                  'elite' => 'Elite Member (' . (int)setting_num('elite_discount', 30) . '% off)',
-                  'vip'   => 'VIP Member ('   . (int)setting_num('vip_discount',   40) . '% off)',
-                ];
-                $sel = old('membership', 'none');
-                foreach ($tiers as $val => $label): ?>
-                <option value="<?= e($val) ?>" <?= $sel === $val ? 'selected' : '' ?>><?= e($label) ?></option>
-                <?php endforeach; ?>
-              </select>
-              <span class="field__hint">Membership discounts are verified before your booking is confirmed.</span>
+            <?php if ($cust !== null && $cust_discount > 0): ?>
+            <div class="alert alert--gold">
+              <?= icon('crown') ?>
+              <span>You&rsquo;re signed in as a <strong><?= e(membership_label($cust_tier)) ?></strong>
+                &mdash; <?= (int)$cust_discount ?>% has already been taken off the price shown.</span>
             </div>
+            <?php elseif ($cust === null): ?>
+            <div class="alert alert--info">
+              <?= icon('info') ?>
+              <span><a href="signin.php?next=booking.php">Sign in</a> if you&rsquo;re an Elite or
+                VIP member and your discount will be applied automatically, or
+                <a href="signup.php">create an account</a> to save this trip and rebook in one tap.</span>
+            </div>
+            <?php endif; ?>
 
             <div class="field">
               <label class="field__label" for="notes">Extra requests</label>
@@ -601,6 +685,11 @@ require __DIR__ . '/includes/header.php';
     quoteUrl: 'api/quote.php',
     minHoursDefault: 3,
     startStep: <?= (int)$start_step ?>,
+    maxStops: <?= (int)setting_num('max_stops', 3) ?>,
+    stopFee: <?= (float)setting_num('stop_fee', 15) ?>,
+    savedPlaces: <?= e_json($cust ? array_map(
+        fn($a) => ['label' => $a['label'], 'address' => $a['address']],
+        customer_addresses((int)$cust['id'])) : []) ?>,
     mapsEnabled: <?= maps_enabled() ? 'true' : 'false' ?>
   };
 </script>

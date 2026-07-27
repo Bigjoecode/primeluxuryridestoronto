@@ -76,7 +76,72 @@
     if (old) old.remove();
   }
 
+  /* ── Additional stops ────────────────────────────────────────── */
+
+  var stopList  = document.getElementById('stopList');
+  var addStop   = document.getElementById('addStopBtn');
+  var maxStops  = parseInt(cfg.maxStops, 10) || 3;
+
+  function stopCount() {
+    return stopList ? stopList.querySelectorAll('input[name="stops[]"]').length : 0;
+  }
+
+  function syncAddStop() {
+    if (!addStop) return;
+    var n = stopCount();
+    addStop.disabled = n >= maxStops;
+    addStop.querySelector('span').textContent =
+      n >= maxStops ? 'Maximum ' + maxStops + ' stops' : 'Add a stop';
+  }
+
+  function addStopRow(value) {
+    if (!stopList || stopCount() >= maxStops) return;
+
+    var row = document.createElement('div');
+    row.style.cssText = 'display:flex;gap:var(--s-3);align-items:center;';
+    row.innerHTML =
+      '<input class="input" type="text" name="stops[]" placeholder="Stop address">' +
+      '<button type="button" class="btn btn--ghost btn--sm" data-remove-stop ' +
+      'aria-label="Remove this stop">' +
+      '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
+      'stroke-width="1.75" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>' +
+      '</button>';
+
+    if (value) row.querySelector('input').value = value;
+    stopList.appendChild(row);
+    syncAddStop();
+    requestQuote();
+    return row;
+  }
+
+  if (addStop) {
+    addStop.addEventListener('click', function () {
+      var row = addStopRow('');
+      if (row) row.querySelector('input').focus();
+    });
+  }
+
+  if (stopList) {
+    stopList.addEventListener('click', function (ev) {
+      var btn = ev.target.closest('[data-remove-stop]');
+      if (!btn) return;
+      btn.parentNode.remove();
+      syncAddStop();
+      lastKey = '';
+      requestQuote();
+    });
+  }
+
   /* ── Conditional fields per service type ─────────────────────── */
+
+  var fieldTripType   = form.querySelector('[data-field="triptype"]');
+  var fieldStops      = form.querySelector('[data-field="stops"]');
+  var fieldReturnTrip = form.querySelector('[data-field="returntrip"]');
+
+  function isReturnTrip() {
+    var el = form.querySelector('[data-trip-radio]:checked');
+    return !!el && el.value === '1';
+  }
 
   function applyServiceRules() {
     var svc = serviceType();
@@ -91,6 +156,20 @@
     if (fieldReturn)   fieldReturn.hidden   = !isRental;
     if (fieldFlight)   fieldFlight.hidden   = (svc !== 'airport');
     if (fieldDistance) fieldDistance.hidden = isHourly || isRental;
+
+    // Returns and per-stop fees only apply to point-to-point journeys.
+    // Hourly hire already includes unlimited stops; rentals have their
+    // own return date.
+    var pointToPoint = needsDropoff;
+    if (fieldTripType) fieldTripType.hidden = !pointToPoint;
+    if (fieldStops)    fieldStops.hidden    = !pointToPoint;
+    if (fieldReturnTrip) {
+      fieldReturnTrip.hidden = !(pointToPoint && isReturnTrip());
+    }
+    if (!pointToPoint) {
+      var oneWay = form.querySelector('[data-trip-radio][value="0"]');
+      if (oneWay) oneWay.checked = true;
+    }
 
     // Pickup label wording
     var hint = $('pickupHint');
@@ -211,6 +290,16 @@
           fail(ret, 'The return must be after collection.');
         }
       }
+
+      var retTrip = $('return_at_trip');
+      if (retTrip && isReturnTrip() && fieldReturnTrip && !fieldReturnTrip.hidden) {
+        clearError(retTrip);
+        if (!retTrip.value) {
+          fail(retTrip, 'Please choose when you would like collecting for the return leg.');
+        } else if (when.value && retTrip.value <= when.value) {
+          fail(retTrip, 'The return leg must be after the outbound pickup.');
+        }
+      }
     }
 
     if (step === 3) {
@@ -322,7 +411,8 @@
       days:         rentalDays(),
       pickup:       ($('pickup_address')  || {}).value || '',
       dropoff:      ($('dropoff_address') || {}).value || '',
-      membership:   ($('membership')      || {}).value || 'none'
+      is_return:    isReturnTrip(),
+      stops:        stopCount()
     };
   }
 
@@ -431,8 +521,16 @@
       rental: 'Vehicle Rental'
     };
 
+    var stops = [];
+    form.querySelectorAll('input[name="stops[]"]').forEach(function (i) {
+      if (i.value.trim()) stops.push(i.value.trim());
+    });
+
     var rows = [
       ['Service',       labels[svc] || svc],
+      ['Trip type',     isReturnTrip() ? 'Return trip' : 'One way'],
+      ['Extra stops',   stops.length ? stops.join(' · ') : ''],
+      ['Return leg',    isReturnTrip() ? fmtDT(($('return_at_trip') || {}).value) : ''],
       ['Vehicle',       v ? v.name : '—'],
       ['Pickup',        ($('pickup_address') || {}).value],
       ['Drop-off',      (svc === 'hourly' || svc === 'rental') ? '' : ($('dropoff_address') || {}).value],
@@ -485,14 +583,20 @@
       requestQuote();
     }
 
-    if (t.matches('#membership, #hours, #distance_km, #pickup_at, #return_at')) {
+    if (t.matches('[data-trip-radio]')) {
+      applyServiceRules();
+      lastKey = '';
+      requestQuote();
+    }
+
+    if (t.matches('#hours, #distance_km, #pickup_at, #return_at, #return_at_trip')) {
       requestQuote();
     }
   });
 
   // Debounced re-quote while typing addresses (affects flat-rate matching).
   form.addEventListener('input', function (ev) {
-    if (!ev.target.matches('#pickup_address, #dropoff_address, #distance_km')) return;
+    if (!ev.target.matches('#pickup_address, #dropoff_address, #distance_km, input[name="stops[]"]')) return;
     clearTimeout(quoteTimer);
     quoteTimer = setTimeout(requestQuote, 600);
   });
@@ -508,6 +612,7 @@
   /* ── Init ────────────────────────────────────────────────────── */
 
   applyServiceRules();
+  syncAddStop();
 
   // Open on the first step the hero quick-search did NOT already answer,
   // but never skip past a step whose fields failed validation.

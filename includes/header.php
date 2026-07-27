@@ -14,13 +14,19 @@ $page_title       = $page_title       ?? SITE_TAGLINE;
 $page_description = $page_description ?? setting('meta_description',
     'Premium chauffeur service for airport transfers, corporate travel and events across Toronto & the GTA.');
 $body_class       = $body_class       ?? '';
+$page_robots      = $page_robots      ?? 'index, follow, max-image-preview:large';
 
 $full_title = ($page_slug === 'home')
     ? $page_title . ' | ' . SITE_NAME
     : $page_title . ' | ' . SITE_NAME;
 
-$canonical = rtrim(SITE_URL, '/') . ($_SERVER['REQUEST_URI'] ?? '/');
-$canonical = strtok($canonical, '?');
+// Pages with a rewritten pretty URL can declare their canonical path.
+if (!empty($canonical_path)) {
+    $canonical = rtrim(SITE_URL, '/') . $canonical_path;
+} else {
+    $canonical = rtrim(SITE_URL, '/') . ($_SERVER['REQUEST_URI'] ?? '/');
+    $canonical = strtok($canonical, '?');
+}
 $og_image  = $og_image ?? rtrim(SITE_URL, '/') . '/assets/img/logo.png';
 
 $nav_items = [
@@ -42,7 +48,7 @@ $nav_items = [
 <meta name="description" content="<?= e($page_description) ?>">
 <link rel="canonical" href="<?= e($canonical) ?>">
 <meta name="theme-color" content="#08070a">
-<meta name="robots" content="index, follow, max-image-preview:large">
+<meta name="robots" content="<?= e($page_robots) ?>">
 
 <!-- Open Graph / social -->
 <meta property="og:type" content="website">
@@ -156,6 +162,16 @@ $nav_items = [
     </nav>
 
     <div class="nav-actions">
+      <?php $nav_customer = function_exists('customer') ? customer() : null; ?>
+      <?php if ($nav_customer): ?>
+      <a href="account.php" class="btn btn--outline btn--sm btn--desktop-only"
+         aria-label="My account">
+        <?= icon('users') ?><span><?= e(explode(' ', trim((string)$nav_customer['full_name']))[0]) ?></span>
+      </a>
+      <?php else: ?>
+      <a href="signin.php" class="btn btn--ghost btn--sm btn--desktop-only">Sign in</a>
+      <?php endif; ?>
+
       <a href="<?= e(tel_url()) ?>" class="btn btn--outline btn--sm btn--desktop-only">
         <?= icon('phone') ?><span><?= e(setting('phone', 'Call Us')) ?></span>
       </a>

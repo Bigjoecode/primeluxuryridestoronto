@@ -51,6 +51,14 @@ define('STRIPE_SECRET_KEY',      '');
 define('STRIPE_WEBHOOK_SECRET',  '');
 define('STRIPE_CURRENCY',        'cad');
 
+// ── SMS (Twilio) ───────────────────────────────────────────────────
+// Used to text the customer their chauffeur's name, car and plate when
+// you assign a driver. Leave blank → the site logs the message to
+// logs/sms.log instead and still sends the email version.
+define('TWILIO_SID',   '');
+define('TWILIO_TOKEN', '');
+define('TWILIO_FROM',  '');          // e.g. +14165550000
+
 // ── Business rules (defaults; overridable in Admin → Settings) ─────
 define('DEFAULT_HST_RATE',      13.0);   // %
 define('FLAT_RATE_THRESHOLD_KM', 40);    // >= this distance uses the flat-rate table

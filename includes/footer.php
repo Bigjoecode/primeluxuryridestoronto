@@ -41,8 +41,37 @@ $social_names = [
           <li><a href="fleet.php">Our Fleet</a></li>
           <li><a href="rates.php">Flat Rates</a></li>
           <li><a href="rentals.php">Car Rentals</a></li>
+          <?php if (function_exists('customer') && customer()): ?>
+          <li><a href="account.php">My Account</a></li>
+          <?php else: ?>
+          <li><a href="signin.php">Sign In</a></li>
+          <?php endif; ?>
         </ul>
       </div>
+
+      <?php
+      // Popular routes — internal links that help these pages rank.
+      $footer_routes = [];
+      try {
+          $footer_routes = db_all(
+              'SELECT DISTINCT f.`city`, f.`city_key`
+                 FROM `flat_rates` f
+                 JOIN `vehicles` v ON v.`id` = f.`vehicle_id`
+                WHERE v.`is_active` = 1 AND f.`price` IS NOT NULL
+             ORDER BY f.`distance_km` DESC
+                LIMIT 6');
+      } catch (Throwable $ex) { /* footer must never break the page */ }
+      if ($footer_routes): ?>
+      <div class="footer-col">
+        <h3>Popular Routes</h3>
+        <ul>
+          <?php foreach ($footer_routes as $fr): ?>
+          <li><a href="/toronto-to-<?= e(str_replace(' ', '-', (string)$fr['city_key'])) ?>-car-service">
+            Toronto to <?= e($fr['city']) ?></a></li>
+          <?php endforeach; ?>
+        </ul>
+      </div>
+      <?php endif; ?>
 
       <div class="footer-col">
         <h3>Services</h3>

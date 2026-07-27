@@ -6,6 +6,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../includes/pricing.php';
+require_once __DIR__ . '/../includes/customer.php';
 
 header('Content-Type: application/json; charset=utf-8');
 header('X-Content-Type-Options: nosniff');
@@ -29,6 +30,9 @@ if (!csrf_check($input['csrf'] ?? null)) {
     exit;
 }
 
+$cust      = customer();
+$cust_tier = $cust ? (string)$cust['membership_tier'] : 'none';
+
 try {
     $quote = calculate_quote([
         'service_type' => (string)($input['service_type'] ?? ''),
@@ -39,7 +43,11 @@ try {
         'days'         => (int)($input['days'] ?? 0),
         'pickup'       => (string)($input['pickup'] ?? ''),
         'dropoff'      => (string)($input['dropoff'] ?? ''),
-        'membership'   => (string)($input['membership'] ?? 'none'),
+        'is_return'    => !empty($input['is_return']),
+        'stops'        => (int)($input['stops'] ?? 0),
+        // Membership comes from the signed-in account, never the request
+        // body — a crafted POST must not be able to claim a discount.
+        'membership'   => $cust_tier,
     ]);
 } catch (Throwable $ex) {
     app_log('errors.log', 'quote.php: ' . $ex->getMessage());
@@ -73,4 +81,6 @@ echo json_encode([
     'notes'            => $quote['notes'],
     'hours'            => $quote['hours'] ?? null,
     'days'             => $quote['days'] ?? null,
+    'stops'            => $quote['stops'] ?? 0,
+    'is_return'        => $quote['is_return'] ?? false,
 ], JSON_UNESCAPED_UNICODE);

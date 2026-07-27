@@ -1,6 +1,8 @@
 <?php
 /** Single booking: view, update status/payment, assign driver, add notes. */
 require_once __DIR__ . '/includes/auth.php';
+require_once __DIR__ . '/../includes/sms.php';
+require_once __DIR__ . '/../includes/mailer.php';
 $admin = require_admin();
 
 $id = (int)($_GET['id'] ?? 0);
@@ -40,6 +42,65 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $admin['email'], $booking['reference'], $status, $payment));
 
         flash('success', 'Booking ' . $booking['reference'] . ' updated.');
+        header('Location: booking-view.php?id=' . $id);
+        exit;
+    }
+
+    if ($action === 'assign') {
+        $driver_id = (int)($_POST['driver_id'] ?? 0);
+        $driver    = $driver_id > 0
+            ? db_one('SELECT * FROM `drivers` WHERE `id` = ? LIMIT 1', [$driver_id])
+            : null;
+
+        if (!$driver) {
+            flash('error', 'Please choose a chauffeur from the roster.');
+            header('Location: booking-view.php?id=' . $id);
+            exit;
+        }
+
+        // Every booking needs a tracking token before we can send a link.
+        $token = (string)($booking['track_token'] ?? '');
+        if ($token === '') {
+            $token = bin2hex(random_bytes(8));
+        }
+
+        db_exec(
+            "UPDATE `bookings`
+                SET `driver_id` = ?, `assigned_driver` = ?, `track_token` = ?,
+                    `status` = CASE WHEN `status` IN ('pending','confirmed')
+                                    THEN 'assigned' ELSE `status` END
+              WHERE `id` = ?",
+            [$driver_id, $driver['full_name'], $token, $id]);
+
+        $fresh   = db_one('SELECT * FROM `bookings` WHERE `id` = ? LIMIT 1', [$id]);
+        $vehicle = !empty($fresh['vehicle_id']) ? get_vehicle((int)$fresh['vehicle_id']) : null;
+
+        $sent = [];
+        if (!empty($_POST['notify'])) {
+            // Best effort — a failed notification must not undo the assignment.
+            try {
+                if (send_driver_assigned_email($fresh, $driver, $vehicle)) { $sent[] = 'email'; }
+            } catch (Throwable $ex) {
+                app_log('errors.log', 'driver email failed: ' . $ex->getMessage());
+            }
+            try {
+                if (send_sms((string)$fresh['phone'], driver_assigned_text($fresh, $driver, $vehicle))) {
+                    $sent[] = 'SMS';
+                }
+            } catch (Throwable $ex) {
+                app_log('errors.log', 'driver SMS failed: ' . $ex->getMessage());
+            }
+            db_exec('UPDATE `bookings` SET `notified_at` = NOW() WHERE `id` = ?', [$id]);
+        }
+
+        app_log('admin.log', sprintf('%s assigned %s to %s',
+                $admin['email'], $driver['full_name'], $fresh['reference']));
+
+        flash('success', $driver['full_name'] . ' assigned to ' . $fresh['reference']
+            . ($sent ? ' — customer notified by ' . implode(' and ', $sent) . '.'
+                     : (!empty($_POST['notify'])
+                          ? ' — but the notification could not be delivered (see logs).'
+                          : '.')));
         header('Location: booking-view.php?id=' . $id);
         exit;
     }
@@ -197,13 +258,6 @@ require __DIR__ . '/includes/header.php';
           </div>
 
           <div class="field">
-            <label class="field__label" for="assigned_driver">Assigned chauffeur</label>
-            <input class="input" type="text" id="assigned_driver" name="assigned_driver"
-                   value="<?= e((string)$booking['assigned_driver']) ?>"
-                   placeholder="Chauffeur name">
-          </div>
-
-          <div class="field">
             <label class="field__label" for="admin_notes">Internal notes</label>
             <textarea class="textarea" id="admin_notes" name="admin_notes"
                       placeholder="Notes visible only to you and your team…"><?= e((string)$booking['admin_notes']) ?></textarea>
@@ -214,6 +268,90 @@ require __DIR__ . '/includes/header.php';
             <?= icon('check') ?><span>Save changes</span>
           </button>
         </form>
+      </div>
+    </div>
+
+    <!-- ══ ASSIGN A CHAUFFEUR ═══════════════════════════════════════ -->
+    <?php
+    $drivers  = db_all('SELECT * FROM `drivers` WHERE `is_active` = 1 ORDER BY `full_name`');
+    $assigned = !empty($booking['driver_id'])
+        ? db_one('SELECT * FROM `drivers` WHERE `id` = ? LIMIT 1', [(int)$booking['driver_id']])
+        : null;
+    $veh = !empty($booking['vehicle_id']) ? get_vehicle((int)$booking['vehicle_id']) : null;
+    ?>
+    <div class="panel" style="<?= $assigned ? 'border-color:var(--gold-line);' : '' ?>">
+      <div class="panel__head">
+        <h2 class="panel__title">Chauffeur</h2>
+        <?php if ($booking['notified_at']): ?>
+        <span class="badge-status badge-completed">Customer notified</span>
+        <?php endif; ?>
+      </div>
+      <div class="panel__body">
+
+        <?php if ($assigned): ?>
+        <div class="dl-item mb-5">
+          <dt>Currently assigned</dt>
+          <dd>
+            <strong style="font-size:var(--fs-lg);color:var(--gold);"><?= e($assigned['full_name']) ?></strong><br>
+            <a class="text-gold" href="tel:<?= e(preg_replace('/[^\d+]/', '', (string)$assigned['phone'])) ?>">
+              <?= e($assigned['phone']) ?></a>
+            <?php if ($booking['notified_at']): ?>
+            <br><span class="muted" style="font-size:var(--fs-sm);">
+              Notified <?= e(fmt_datetime($booking['notified_at'])) ?></span>
+            <?php endif; ?>
+          </dd>
+        </div>
+        <?php endif; ?>
+
+        <?php if (!$drivers): ?>
+          <p class="text-muted mb-5" style="font-size:var(--fs-sm);">
+            No chauffeurs are marked available yet.</p>
+          <a href="drivers.php" class="btn btn--gold btn--block">
+            <?= icon('users') ?><span>Manage roster</span>
+          </a>
+        <?php else: ?>
+        <form method="post">
+          <?= csrf_field() ?>
+          <input type="hidden" name="action" value="assign">
+
+          <div class="field">
+            <label class="field__label" for="driver_id">
+              <?= $assigned ? 'Reassign to' : 'Assign chauffeur' ?>
+            </label>
+            <select class="select" id="driver_id" name="driver_id" required>
+              <option value="">Choose a chauffeur…</option>
+              <?php foreach ($drivers as $d): ?>
+              <option value="<?= (int)$d['id'] ?>"
+                      <?= (int)($booking['driver_id'] ?? 0) === (int)$d['id'] ? 'selected' : '' ?>>
+                <?= e($d['full_name']) ?> — <?= e($d['phone']) ?>
+              </option>
+              <?php endforeach; ?>
+            </select>
+          </div>
+
+          <div class="checkbox-row mb-5">
+            <input type="checkbox" id="notify" name="notify" value="1" checked>
+            <label for="notify">Notify the customer now</label>
+          </div>
+
+          <p class="text-muted mb-5" style="font-size:var(--fs-xs);line-height:1.6;">
+            Sends the chauffeur&rsquo;s name, phone, the vehicle
+            <?= $veh && $veh['plate'] ? '(' . e($veh['plate']) . ')' : '' ?>
+            and a tracking link &mdash; by email<?= sms_enabled() ? ' and SMS' : '' ?>.
+            <?php if (!sms_enabled()): ?>
+            SMS is off, so the text is written to <code>logs/sms.log</code>.
+            <?php endif; ?>
+            <?php if ($veh && !$veh['plate']): ?>
+            <br><a href="vehicle-edit.php?id=<?= (int)$veh['id'] ?>" class="text-gold">Add a number plate</a>
+            to this vehicle so customers can identify the car.
+            <?php endif; ?>
+          </p>
+
+          <button type="submit" class="btn btn--gold btn--block">
+            <?= icon('check') ?><span><?= $assigned ? 'Reassign & notify' : 'Assign & notify' ?></span>
+          </button>
+        </form>
+        <?php endif; ?>
       </div>
     </div>
 
@@ -236,6 +374,12 @@ require __DIR__ . '/includes/header.php';
            href="../confirmation.php?ref=<?= e(urlencode($booking['reference'])) ?>">
           <?= icon('eye') ?><span>View customer receipt</span>
         </a>
+        <?php if (!empty($booking['track_token'])): ?>
+        <a class="btn btn--outline btn--block" target="_blank" rel="noopener"
+           href="../track.php?t=<?= e(urlencode((string)$booking['track_token'])) ?>">
+          <?= icon('navigation') ?><span>Open tracking page</span>
+        </a>
+        <?php endif; ?>
       </div>
     </div>
 

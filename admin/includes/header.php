@@ -22,6 +22,10 @@ $nav = [
         ['bookings.php', 'calendar',  'Bookings',  $n_pending ?: ''],
         ['enquiries.php','inbox',     'Enquiries', $n_unread ?: ''],
     ]],
+    ['People', [
+        ['drivers.php',   'users', 'Chauffeurs', ''],
+        ['customers.php', 'award', 'Customers',  ''],
+    ]],
     ['Configuration', [
         ['vehicles.php', 'car',       'Vehicles',  ''],
         ['rates.php',    'tag',       'Flat Rates',''],

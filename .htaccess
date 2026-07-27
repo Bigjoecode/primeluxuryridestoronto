@@ -23,6 +23,12 @@ AddDefaultCharset UTF-8
   # Dynamic sitemap served at the conventional /sitemap.xml
   RewriteRule ^sitemap\.xml$ sitemap.php [L]
 
+  # SEO route pages: /toronto-to-niagara-falls-car-service
+  RewriteRule ^toronto-to-([a-z0-9-]+)-car-service/?$ route.php?to=$1 [L,QSA]
+
+  # Short tracking links: /t/<token>
+  RewriteRule ^t/([a-f0-9]{8,32})/?$ track.php?t=$1 [L]
+
   # /about  →  /about.php  (only when the .php file really exists)
   RewriteCond %{REQUEST_FILENAME} !-d
   RewriteCond %{REQUEST_FILENAME}\.php -f

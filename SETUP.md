@@ -13,8 +13,11 @@ No framework, no build step, no Composer — upload and run.
 Already done on this machine, but for reference:
 
 ```bash
-# 1. Import the database
+# 1. Import the database (fresh install - includes every table)
 mysql -u root -P 3307 -h 127.0.0.1 < sql/schema.sql
+
+#    Upgrading an existing database instead? Run this once:
+#    mysql -u root -P 3307 -h 127.0.0.1 primeluxuryrides < sql/upgrade-002.sql
 
 # 2. Serve the folder
 php -S 127.0.0.1:8899 -t .
@@ -80,7 +83,9 @@ define('ADMIN_EMAIL', 'info@primeluxuryridestoronto.ca');
 | **Enquiries** | Contact-form messages, mark read, reply by email or WhatsApp |
 | **Vehicles** | Add / edit / remove vehicles, **upload photos**, set all prices, control which services each vehicle allows, reorder, hide |
 | **Flat Rates** | Edit the city-to-city price table per vehicle, add destinations, copy a full rate card between vehicles |
-| **Settings** | Phone, WhatsApp, email, hours, social links, **HST rate**, membership discounts, flat-rate threshold, home page headline, meta description |
+| **Chauffeurs** | Driver roster - add, edit, mark available or off duty |
+| **Customers** | Registered accounts, spend per customer, and **granting Elite / VIP membership** |
+| **Settings** | Phone, WhatsApp, email, hours, social links, **HST rate**, membership discounts, return-trip discount, per-stop fee, flat-rate threshold, home page headline, meta description |
 
 ---
 
@@ -94,8 +99,16 @@ distance ≥ 40 km   →  flat rate from the city table
 hourly             →  hours × hourly_rate  (below the minimum is raised automatically)
 rental             →  cheapest split of weekly + daily rates
 
+  + per-stop fee for each additional stop (hourly hire includes unlimited stops)
+  + return leg at the same price, then a return discount for booking both together
+
 then:  − membership discount  →  + 13% HST  →  total
 ```
+
+**Membership is granted by you, never chosen by the customer.** Set a tier in
+Admin -> Customers and the discount applies automatically whenever that person is
+signed in. A crafted request cannot claim a discount: the server reads the tier
+from the account session and ignores anything sent in the form.
 
 ### Seeded from your rate sheets
 
@@ -161,6 +174,39 @@ Use the mailbox your host provides, or a service like Zoho / Google Workspace / 
 Sending from your own domain dramatically improves inbox placement.
 
 ---
+
+## 5b. SMS notifications (optional)
+
+When you assign a chauffeur, the customer is emailed their driver's name, the
+vehicle and its number plate, plus a private tracking link. Add Twilio credentials
+to send it as a text as well:
+
+```php
+define('TWILIO_SID',   'AC...');
+define('TWILIO_TOKEN', '...');
+define('TWILIO_FROM',  '+14165550000');
+```
+
+Without them the email still sends and the text is written to `logs/sms.log`, so
+you can see exactly what would have gone out.
+
+Add number plates in Admin -> Vehicles so customers can identify the car on arrival.
+
+## 5c. SEO route pages
+
+Every destination in your flat-rate table automatically gets its own landing page:
+
+```
+/toronto-to-niagara-falls-car-service
+/toronto-to-ottawa-car-service
+```
+
+Each carries that route's published prices, distance, drive time, an FAQ block with
+schema markup, and a pre-filled booking button. **Add a city in Admin -> Flat Rates
+and a new indexable page appears**, and it is added to the sitemap automatically.
+
+These pages are how you rank for searches like "toronto to niagara car service",
+which is where paying customers actually come from.
 
 ## 6. Google Maps (optional)
 
@@ -233,6 +279,10 @@ Compress images before uploading (<https://squoosh.app>) — it keeps the site f
 ├── rentals.php          Car rental page
 ├── booking.php          5-step booking flow
 ├── confirmation.php     Booking receipt + payment
+├── route.php            SEO landing page per route (pretty URL via .htaccess)
+├── track.php            Private ride tracking (/t/<token>)
+├── account.php          Customer dashboard - trips, rebook, saved places
+├── signin.php           Customer sign in / sign up / sign out
 ├── contact.php          Contact + enquiry form
 ├── privacy.php          Privacy Policy      ← have a lawyer review
 ├── terms.php            Terms & Conditions  ← have a lawyer review
@@ -255,11 +305,12 @@ Compress images before uploading (<https://squoosh.app>) — it keeps the site f
 │   ├── stripe-checkout.php  Starts a payment
 │   └── stripe-webhook.php   Receives payment confirmations
 │
-├── admin/               Admin panel (9 pages)
+├── admin/               Admin panel (11 pages)
 ├── assets/css|js|img/   Styles, scripts, logo
 ├── uploads/vehicles/    Vehicle photos (must be writable)
 ├── logs/                Mail + error logs (must be writable)
-└── sql/schema.sql       Database structure + your rate data
+├── sql/schema.sql       Database structure + rate data (fresh install)
+└── sql/upgrade-002.sql  Upgrade an existing database in place
 ```
 
 ---

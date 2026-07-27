@@ -322,6 +322,47 @@ function send_booking_admin_email(array $b): bool
     );
 }
 
+/**
+ * "Your chauffeur is confirmed" — sent when a driver is assigned.
+ * This is the message customers judge the service on, so it leads with
+ * the three things they actually need: who, what car, and when.
+ */
+function send_driver_assigned_email(array $b, array $driver, ?array $vehicle = null): bool
+{
+    require_once __DIR__ . '/sms.php';
+
+    $first = explode(' ', trim((string)$b['full_name']))[0] ?: 'there';
+    $plate = trim((string)($vehicle['plate'] ?? ''));
+
+    $rows = email_row('Chauffeur', (string)$driver['full_name'])
+          . email_row('Contact number', (string)$driver['phone'])
+          . email_row('Vehicle', (string)$b['vehicle_name'] . ($plate !== '' ? ' — ' . $plate : ''))
+          . email_row('Collecting you', fmt_datetime($b['pickup_at']))
+          . email_row('From', (string)$b['pickup_address']);
+
+    $inner = '<p style="margin:0 0 16px;">Hello ' . e($first) . ',</p>'
+      . '<p style="margin:0 0 16px;">Good news &mdash; your chauffeur for booking '
+      .   '<strong style="color:#d4af37;">' . e($b['reference']) . '</strong> is confirmed '
+      .   'and your vehicle is reserved.</p>'
+      . email_panel($rows, 'Your chauffeur')
+      . '<p style="margin:22px 0 0;color:#b9b4ae;font-size:14px;">'
+      .   'Your chauffeur will meet you at the pickup location, open the door for you and '
+      .   'assist with your luggage. If your plans change, call us on '
+      .   '<strong style="color:#d4af37;">' . e(setting('phone')) . '</strong> at any hour.</p>'
+      . email_button(track_url($b), 'Track your ride')
+      . '<p style="margin:14px 0 0;color:#8b867f;font-size:12px;">'
+      .   'This link shows your ride status and your chauffeur&rsquo;s details. '
+      .   'Please keep it private.</p>';
+
+    return send_mail(
+        (string)$b['email'],
+        'Your chauffeur is confirmed — ' . $b['reference'] . ' | ' . SITE_NAME,
+        email_shell('Your chauffeur is confirmed', $inner,
+            $driver['full_name'] . ' · ' . fmt_datetime($b['pickup_at'])),
+        setting('email', ADMIN_EMAIL)
+    );
+}
+
 /** Contact / quote enquiry notification. */
 function send_enquiry_email(array $q): bool
 {
