@@ -5,6 +5,21 @@
    Palette : near-black + metallic gold   Type: Playfair Display / Inter
    =================================================================== */
 
+/* ── 0. CURRENCY GLYPH FIX ──────────────────────────────────────────
+   Playfair Display draws "$" with two vertical strokes. It is a real
+   glyph, not a rendering fault, but it reads as a typo on a price.
+   This face supplies ONLY U+0024 from a single-stroke serif already
+   present on every OS, so Playfair still renders every digit and the
+   prices keep their display look. Falls through harmlessly if none of
+   the local fonts resolve. */
+@font-face {
+  font-family: "PLRCurrency";
+  src: local("Georgia"), local("Times New Roman"),
+       local("Iowan Old Style"), local("Liberation Serif"), local("Arial");
+  unicode-range: U+0024;          /* dollar sign only */
+  font-display: swap;
+}
+
 /* ── 1. TOKENS ──────────────────────────────────────────────────── */
 :root {
   /* Surfaces — layered near-blacks */
@@ -35,7 +50,8 @@
   --info:          #7dd3fc;
 
   /* Type */
-  --font-display: "Playfair Display", "Iowan Old Style", Georgia, serif;
+  /* PLRCurrency first so its U+0024 wins; Playfair supplies everything else. */
+  --font-display: "PLRCurrency", "Playfair Display", "Iowan Old Style", Georgia, serif;
   --font-body:    "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
 
   --fs-xs:   .75rem;
