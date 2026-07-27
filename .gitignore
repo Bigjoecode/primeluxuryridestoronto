@@ -42,3 +42,6 @@ _probe.php
 #     echo "includes/config.php" >> .gitignore
 #
 # and keep a copy of the placeholder version as config.example.php.
+
+# Real configuration — contains credentials, never commit
+includes/config.php

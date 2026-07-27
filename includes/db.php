@@ -2,6 +2,14 @@
 /**
  * PDO database connection (singleton).
  */
+// config.php is deliberately not in version control (it holds credentials).
+// Fail with a clear instruction rather than a bare "file not found".
+if (!is_file(__DIR__ . '/config.php')) {
+    http_response_code(500);
+    die('<pre style="font:14px monospace;padding:2rem">Configuration missing.'
+      . "\n\nCopy includes/config.example.php to includes/config.php"
+      . "\nand fill in your database, email and API settings.</pre>");
+}
 require_once __DIR__ . '/config.php';
 
 function db(): PDO

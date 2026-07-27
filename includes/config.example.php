@@ -1,6 +1,9 @@
 <?php
 /**
- * Prime Luxury Rides Toronto — Configuration
+ * Prime Luxury Rides Toronto — Configuration TEMPLATE
+ *
+ * Copy this file to `config.php` and fill in your real values.
+ * `config.php` is git-ignored so your keys never reach the repository.
  * ------------------------------------------------------------------
  * Edit the values in this file to match your server / accounts.
  * Everything else on the site reads from here.
@@ -8,10 +11,10 @@
 
 // ── Environment ────────────────────────────────────────────────────
 // 'dev' shows PHP errors on screen. Set to 'live' before going public.
-define('APP_ENV', 'dev');
+define('APP_ENV', 'live');
 
 // Public base URL (no trailing slash). Used for canonical tags, emails, Stripe returns.
-define('SITE_URL', 'http://localhost/primeluxuryridestoronto.ca');
+define('SITE_URL', 'https://primeluxuryridestoronto.ca');
 
 define('SITE_NAME',    'Prime Luxury Rides Toronto');
 define('SITE_TAGLINE', 'Luxury Chauffeur Services in Toronto');
@@ -19,9 +22,9 @@ define('SITE_TAGLINE', 'Luxury Chauffeur Services in Toronto');
 // ── Database ───────────────────────────────────────────────────────
 define('DB_HOST', '127.0.0.1');
 define('DB_NAME', 'primeluxuryrides');
-define('DB_USER', 'root');
-define('DB_PASS', '');
-define('DB_PORT', '3307');   // XAMPP on this machine runs MySQL on 3307
+define('DB_USER', 'CHANGE_ME');
+define('DB_PASS', 'CHANGE_ME');
+define('DB_PORT', '3306');
 
 // ── Email ──────────────────────────────────────────────────────────
 // Bookings and enquiries are sent here.
@@ -31,7 +34,7 @@ define('MAIL_FROM_NAME', 'Prime Luxury Rides Toronto');
 
 // SMTP — leave SMTP_ENABLED false to use PHP mail(). On XAMPP locally,
 // mail() usually will not deliver; messages are logged instead (see logs/mail.log).
-define('SMTP_ENABLED',  false);
+define('SMTP_ENABLED',  true);   // strongly recommended in production
 define('SMTP_HOST',     'smtp.example.com');
 define('SMTP_PORT',     587);
 define('SMTP_USER',     '');

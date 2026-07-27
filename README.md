@@ -93,7 +93,11 @@ mysql -u root < sql/schema.sql
 # 2. Point a vhost at the folder, or run the built-in server
 php -S localhost:8000
 
-# 3. Edit includes/config.php with your database credentials and SITE_URL
+# 3. Create your config from the template, then edit it
+cp includes/config.example.php includes/config.php
+#    Set DB credentials, SITE_URL, APP_ENV='live', and your SMTP details.
+
+# 4. Open /admin/login.php and create your administrator account (one time only)
 ```
 
 Full deployment steps, SMTP setup, Stripe and Maps configuration, and
@@ -103,17 +107,15 @@ troubleshooting are in **[SETUP.md](SETUP.md)**.
 
 This repository is public, so treat everything in it as known:
 
-- **Change the admin password immediately.** The seed account in `sql/schema.sql`
-  ships with a documented default so the panel is reachable on first run. Sign in
-  at `/admin/`, then Settings → *Change your password*.
-- **Never commit real credentials.** `includes/config.php` is tracked because the
-  site needs it, and it currently holds only empty placeholders. Once you add real
-  Stripe, Maps, SMTP or database values, either make this repository private or
-  untrack the file:
-  ```bash
-  git rm --cached includes/config.php
-  echo "includes/config.php" >> .gitignore
-  ```
+- **Claim the admin account the moment you deploy.** No administrator ships in
+  `sql/schema.sql` on purpose — a known password in a public repo would let anyone
+  walk in. The first visit to `/admin/login.php` shows a one-time form that creates
+  the account with a password you choose; after that it becomes a normal sign-in and
+  cannot create another. Until you complete it, that form is open to anyone who finds
+  it, so do it immediately.
+- **Credentials stay out of the repo.** `includes/config.php` is git-ignored and is
+  never committed. Copy `includes/config.example.php` to `includes/config.php` on the
+  server and put your real Stripe, Maps, SMTP and database values there.
 - **Restrict your Google Maps API key** to your domain before going live.
 - **Have the Privacy Policy and Terms reviewed by a lawyer** — they are drafts
   reflecting the configured pricing rules, not legal advice.

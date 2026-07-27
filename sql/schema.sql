@@ -362,13 +362,16 @@ SELECT id, v.city, v.ckey, v.km, v.price, v.so FROM `vehicles`,
   SELECT 'Ottawa','ottawa',450,1000.00,10) v
 WHERE `slug` = 'mercedes-maybach-gls600';
 
--- --- Default admin user ----------------------------------------------
---  Email:    info@primeluxuryridestoronto.ca
---  Password: PrimeAdmin2026!   <-- CHANGE THIS IMMEDIATELY AFTER LOGIN
-INSERT INTO `admin_users` (`email`,`password_hash`,`full_name`) VALUES
- ('info@primeluxuryridestoronto.ca',
-  '$2y$10$1lezRPnzx1nnKgUO8bqMGORGFyXO.ObYn9yqSkoFAncgR132Vteqe',
-  'Prime Luxury Rides Admin');
+-- --- Administrator ----------------------------------------------------
+--  No admin account is created here on purpose.
+--
+--  Shipping a known password in a public repository would let anyone who
+--  finds it sign straight into the admin panel. Instead, the FIRST visit
+--  to /admin/login.php after install shows a one-time form that creates
+--  the administrator account with a password you choose. Once an admin
+--  exists, that form never appears again.
+--
+--  Deploy, then open /admin/login.php immediately and claim the account.
 
 -- --- Site settings ----------------------------------------------------
 INSERT INTO `settings` (`key_name`,`value`,`label`,`group_name`,`input_type`,`sort_order`) VALUES
