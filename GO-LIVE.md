@@ -64,19 +64,46 @@ Without this, a customer books and **neither of you receives anything**. The
 booking is saved, but it sits in the database unseen. This is the most common
 way a site like this quietly loses business.
 
-In `includes/config.php`:
+Your hosting is GoDaddy/cPanel at `198.12.234.178`, and
+`mail.primeluxuryridestoronto.ca` already resolves there. Create the
+`info@` mailbox in cPanel → *Email Accounts*, then in `includes/config.php`:
 
 ```php
 define('SMTP_ENABLED',  true);
-define('SMTP_HOST',     'smtp.your-provider.com');
+define('SMTP_HOST',     'mail.primeluxuryridestoronto.ca');
 define('SMTP_PORT',     587);
 define('SMTP_USER',     'info@primeluxuryridestoronto.ca');
-define('SMTP_PASS',     'your-mailbox-password');
+define('SMTP_PASS',     'the-mailbox-password');   // <-- the only piece missing
 define('SMTP_SECURE',   'tls');
 ```
 
-Most hosts give you these with your mailbox. If yours does not, a free
-Brevo or Mailgun account works and improves deliverability.
+Everything above is already set except the password.
+
+If port 587 is refused, try `465` with `SMTP_SECURE` set to `'ssl'`. Some
+GoDaddy shared plans only accept `localhost` as the host when sending from
+the same server — if both ports fail, set `SMTP_HOST` to `'localhost'`.
+
+### ⚠ Your MX record still points at Microsoft 365
+
+`primeluxuryridestoronto.ca` currently has one MX record:
+`primeluxuryridestoronto-ca.mail.protection.outlook.com`.
+
+**Sending** through cPanel will work regardless — SMTP authentication does not
+depend on MX. But **incoming** mail to `info@` will be delivered to Microsoft
+365, not to the cPanel mailbox. You would send from cPanel and never see the
+replies, because they would be sitting in Outlook.
+
+Pick one and be consistent:
+
+- **Using cPanel mail:** change the MX record to `mail.primeluxuryridestoronto.ca`
+  (priority 0) and remove the Outlook one. Then create `info@` in cPanel.
+- **Staying on Microsoft 365:** leave MX alone and use `smtp.office365.com:587`
+  instead, having first enabled *Authenticated SMTP* for the mailbox in the
+  Microsoft 365 admin centre (Users → Active users → the user → Mail →
+  Manage email apps). If the account uses MFA you will need an app password.
+
+Do not create the mailbox in both places — mail will go to whichever the MX
+record names, and the other will stay silently empty.
 
 **Test it:** make a real booking on the live site. You should receive two
 emails (customer confirmation and operator notification). If nothing arrives,

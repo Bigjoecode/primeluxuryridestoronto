@@ -89,6 +89,18 @@ function smtp_diagnose(): array
     }
     $add('SMTP enabled', true, SMTP_HOST . ':' . SMTP_PORT . ' (' . SMTP_SECURE . ')');
 
+    // Catch this before the handshake — an empty password produces a
+    // generic "authentication failed" that looks like a wrong password.
+    if (SMTP_USER !== '' && SMTP_PASS === '') {
+        $add('Credentials present', false, 'SMTP_USER is set but SMTP_PASS is empty.');
+        return ['steps' => $steps, 'ok' => false,
+                'hint'  => 'Add the mailbox password for ' . SMTP_USER
+                         . ' to SMTP_PASS in includes/config.php.'];
+    }
+    if (SMTP_USER !== '') {
+        $add('Credentials present', true, SMTP_USER);
+    }
+
     // 1. DNS
     $ip = @gethostbyname(SMTP_HOST);
     if ($ip === SMTP_HOST) {

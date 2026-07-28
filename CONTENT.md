@@ -14,9 +14,9 @@ Work top to bottom. **Section 1 blocks launch. Section 2 is what makes it beauti
 
 | Field | Currently | What to supply |
 |---|---|---|
-| Phone number | `+1 (416) 000-0000` | Your real number. **Every "Call Now" button on the site dials this** — including the mobile bar and the floating button. Right now they dial nothing. |
-| WhatsApp number | `14160000000` | Digits only with country code, e.g. `14165551234`. No `+`, spaces or dashes. Powers the green WhatsApp button. |
-| Public email | `info@primeluxuryridestoronto.ca` | Correct if that mailbox exists. This is where booking and enquiry emails are sent, and what customers reply to. |
+| Phone number | ✅ `+1 (647) 638-8498` | Set. Every "Call Now" button dials this. |
+| WhatsApp number | ✅ `16476388498` | Set. Powers the green WhatsApp button. |
+| Public email | ✅ `info@primeluxuryridestoronto.ca` | Set. Where booking and enquiry emails go, and what customers reply to. |
 | Operating hours | `24 hours a day, 7 days a week` | Change only if you are not actually 24/7. |
 | Service area line | Toronto • Mississauga • Brampton… | Add or remove cities as you like. |
 | Airports served | YYZ • YTZ • YHM | Fine as-is unless you add more. |
