@@ -149,7 +149,8 @@ require __DIR__ . '/includes/header.php';
         <div class="card__icon"><?= icon('tag') ?></div>
         <h3 class="card__title">Membership discounts</h3>
         <p class="card__text mb-4">Regular clients can join our membership programme for a
-           standing discount applied automatically at checkout.</p>
+           standing discount applied automatically at checkout.
+           <a href="membership.php" class="text-gold">See the tiers &rarr;</a></p>
         <ul class="feature-list">
           <li><?= icon('check') ?><span><strong>Elite Member</strong> &mdash;
               <?= (int)setting_num('elite_discount', 30) ?>% off the final price</span></li>

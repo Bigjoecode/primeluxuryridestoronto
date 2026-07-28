@@ -41,6 +41,9 @@ $social_names = [
           <li><a href="fleet.php">Our Fleet</a></li>
           <li><a href="rates.php">Flat Rates</a></li>
           <li><a href="rentals.php">Car Rentals</a></li>
+          <?php if ((int)setting_num('membership_enabled', 1) === 1): ?>
+          <li><a href="membership.php">Membership</a></li>
+          <?php endif; ?>
           <?php if (function_exists('customer') && customer()): ?>
           <li><a href="account.php">My Account</a></li>
           <?php else: ?>
@@ -148,6 +151,18 @@ $social_names = [
 </nav>
 
 <script src="assets/js/main.js?v=<?= @filemtime(ROOT_PATH . '/assets/js/main.js') ?: '1' ?>" defer></script>
+<?php
+/*
+ * Google Maps loads on any page carrying an address input — the booking
+ * wizard and the home-page quick search. Kept here rather than per-page
+ * so the two can never drift apart.
+ */
+if (maps_enabled() && in_array($page_slug ?? '', ['home', 'booking'], true)): ?>
+<script src="assets/js/maps.js?v=<?= @filemtime(ROOT_PATH . '/assets/js/maps.js') ?: '1' ?>" defer></script>
+<script async defer
+        src="https://maps.googleapis.com/maps/api/js?key=<?= e(rawurlencode(GOOGLE_MAPS_API_KEY)) ?>&libraries=places&callback=plrInitMaps&loading=async"></script>
+<?php endif; ?>
+
 <?php if (!empty($page_scripts)) foreach ((array)$page_scripts as $src): ?>
 <script src="<?= e($src) ?>?v=<?= @filemtime(ROOT_PATH . '/' . ltrim(parse_url($src, PHP_URL_PATH) ?? '', '/')) ?: '1' ?>" defer></script>
 <?php endforeach; ?>

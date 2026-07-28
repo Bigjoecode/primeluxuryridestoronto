@@ -62,23 +62,23 @@ try {
                 break;
             }
 
-            // Only mark paid when Stripe says the money actually arrived.
-            if (($object['payment_status'] ?? '') !== 'paid') {
-                app_log('stripe.log', 'Session completed but payment_status was not "paid".');
+            $was_unpaid = ($booking['payment_status'] === 'unpaid');
+
+            // Same rules as the success redirect, so the two routes can
+            // never disagree. Idempotent if the redirect already ran.
+            if (!stripe_apply_paid_session($booking, $object)) {
+                app_log('stripe.log', 'Session completed but was not applied (not paid, or mismatched booking).');
                 break;
             }
 
             $is_deposit = (($object['metadata']['is_deposit'] ?? 'no') === 'yes');
-            $status     = $is_deposit ? 'deposit_paid' : 'paid';
+            app_log('stripe.log', 'Booking ' . $booking['reference'] . ' → '
+                                . ($is_deposit ? 'deposit_paid' : 'paid'));
 
-            db_exec('UPDATE `bookings`
-                     SET `payment_status` = ?,
-                         `stripe_payment_intent` = ?,
-                         `status` = CASE WHEN `status` = \'pending\' THEN \'confirmed\' ELSE `status` END
-                     WHERE `id` = ?',
-                    [$status, (string)($object['payment_intent'] ?? ''), (int)$booking['id']]);
-
-            app_log('stripe.log', 'Booking ' . $booking['reference'] . ' → ' . $status);
+            // Stripe retries webhooks; only email the operator the first time.
+            if (!$was_unpaid) {
+                break;
+            }
 
             // Tell the operator the money landed.
             try {

@@ -148,6 +148,62 @@ function stripe_create_checkout(array $booking, ?string &$error = null): ?string
 }
 
 /**
+ * Fetch a Checkout Session from Stripe.
+ */
+function stripe_get_session(string $session_id): ?array
+{
+    if ($session_id === '' || !stripe_enabled()) {
+        return null;
+    }
+    $res = stripe_request('checkout/sessions/' . rawurlencode($session_id), [], 'GET');
+    return $res['ok'] ? $res['data'] : null;
+}
+
+/**
+ * Mark a booking paid from a completed Checkout Session.
+ *
+ * Shared by the success redirect and the webhook so both routes apply
+ * exactly the same rules. Idempotent: re-running it on an already-paid
+ * booking changes nothing.
+ *
+ * @return bool true when the booking is now recorded as paid.
+ */
+function stripe_apply_paid_session(array $booking, array $session): bool
+{
+    // Only trust a session Stripe itself reports as paid.
+    if (($session['payment_status'] ?? '') !== 'paid') {
+        return false;
+    }
+    // And only one that actually belongs to this booking.
+    $ref = (string)($session['client_reference_id'] ?? ($session['metadata']['reference'] ?? ''));
+    if ($ref !== '' && $ref !== (string)$booking['reference']) {
+        app_log('errors.log', sprintf('Stripe session %s does not match booking %s',
+                (string)($session['id'] ?? '?'), (string)$booking['reference']));
+        return false;
+    }
+
+    if (in_array($booking['payment_status'], ['paid', 'deposit_paid'], true)) {
+        return true;                       // already recorded
+    }
+
+    $is_deposit = ($session['metadata']['is_deposit'] ?? 'no') === 'yes';
+    $status     = $is_deposit ? 'deposit_paid' : 'paid';
+    $intent     = (string)($session['payment_intent'] ?? '');
+
+    db_exec("UPDATE `bookings`
+                SET `payment_status` = ?,
+                    `stripe_payment_intent` = ?,
+                    `status` = CASE WHEN `status` = 'pending' THEN 'confirmed' ELSE `status` END
+              WHERE `id` = ?",
+            [$status, $intent !== '' ? $intent : null, (int)$booking['id']]);
+
+    app_log('admin.log', sprintf('Payment %s for %s (%s)',
+            $status, (string)$booking['reference'], $intent ?: 'no intent'));
+
+    return true;
+}
+
+/**
  * Verify a Stripe webhook signature (v1 scheme). Returns the decoded
  * event, or null when the signature is missing/invalid/stale.
  */

@@ -694,10 +694,4 @@ require __DIR__ . '/includes/header.php';
   };
 </script>
 
-<?php if (maps_enabled()): ?>
-<script src="assets/js/maps.js?v=<?= @filemtime(ROOT_PATH . '/assets/js/maps.js') ?: '1' ?>" defer></script>
-<script async defer
-        src="https://maps.googleapis.com/maps/api/js?key=<?= e(rawurlencode(GOOGLE_MAPS_API_KEY)) ?>&libraries=places&callback=plrInitMaps&loading=async"></script>
-<?php endif; ?>
-
 <?php require __DIR__ . '/includes/footer.php'; ?>

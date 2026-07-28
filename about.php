@@ -1,6 +1,9 @@
 <?php
 /** About Us. */
 require_once __DIR__ . '/includes/functions.php';
+require_once __DIR__ . '/includes/uploads.php';
+
+$about_url = site_image_url('about_image');
 
 $page_slug        = 'about';
 $page_title       = 'About Us';

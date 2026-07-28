@@ -26,6 +26,7 @@ $pages = [
     ['rentals',       '0.8', 'weekly',  page_date('rentals.php')],
     ['booking',       '0.9', 'monthly', page_date('booking.php')],
     ['contact',       '0.7', 'monthly', page_date('contact.php')],
+    ['membership',    '0.8', 'monthly', page_date('membership.php')],
     ['signup',        '0.4', 'monthly', page_date('signup.php')],
     ['signin',        '0.3', 'monthly', page_date('signin.php')],
     ['privacy',       '0.3', 'yearly',  page_date('privacy.php')],

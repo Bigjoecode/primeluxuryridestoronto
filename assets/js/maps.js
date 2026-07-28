@@ -14,9 +14,66 @@
 (function () {
   'use strict';
 
+  /**
+   * Google calls this when the key itself is rejected — wrong key, HTTP
+   * referrer not allowed, billing disabled, or API not enabled. Without
+   * it the autocomplete silently does nothing and the distance box stays
+   * read-only, which would block the customer from pricing their trip.
+   */
+  window.gm_authFailure = function () {
+    console.warn('[Maps] Google rejected the API key. Check the key, its HTTP ' +
+                 'referrer restrictions, billing, and that Maps JavaScript API, ' +
+                 'Places API and Distance Matrix API are all enabled.');
+    releaseDistanceField(
+      'Enter an approximate distance, or leave it blank and we will confirm it with you.');
+  };
+
+  /** Hand the distance field back to the customer. */
+  function releaseDistanceField(message) {
+    var km = document.getElementById('distance_km');
+    if (km) {
+      km.readOnly = false;
+      km.placeholder = 'Optional';
+    }
+    var wrap = document.querySelector('[data-field="distance"]');
+    var hint = wrap && wrap.querySelector('.field__hint');
+    if (hint && message) hint.textContent = message;
+  }
+
+  /**
+   * Autocomplete for the hero quick-search on the home page. Separate
+   * from the booking wizard: these inputs only carry text through to
+   * booking.php, so there is no distance to measure here.
+   */
+  function initQuickSearch() {
+    var inputs = document.querySelectorAll('[data-places]');
+    if (!inputs.length) return;
+
+    inputs.forEach(function (input) {
+      var ac = new google.maps.places.Autocomplete(input, {
+        componentRestrictions: { country: 'ca' },
+        fields: ['formatted_address', 'name'],
+        types: ['geocode', 'establishment']
+      });
+      ac.addListener('place_changed', function () {
+        var p = ac.getPlace();
+        if (!p) return;
+        input.value = p.formatted_address || p.name || input.value;
+      });
+      input.addEventListener('keydown', function (ev) {
+        // Let Enter choose a suggestion instead of submitting the form.
+        if (ev.key === 'Enter' && document.querySelector('.pac-container:not([style*="display: none"])')) {
+          ev.preventDefault();
+        }
+      });
+    });
+  }
+
   // Called by the Google Maps loader callback.
   window.plrInitMaps = function () {
     if (!window.google || !google.maps || !google.maps.places) return;
+
+    initQuickSearch();
 
     var pickup  = document.getElementById('pickup_address');
     var dropoff = document.getElementById('dropoff_address');
@@ -75,12 +132,30 @@
 
       if (hintEl) hintEl.textContent = 'Calculating distance…';
 
-      service.getDistanceMatrix({
+      // We charge per minute as well as per km, so price against the
+      // traffic expected at the actual pickup time rather than an
+      // empty-road best case. Departure must be in the future.
+      var pickupAt = document.getElementById('pickup_at');
+      var departAt = null;
+      if (pickupAt && pickupAt.value) {
+        var d = new Date(pickupAt.value);
+        if (!isNaN(d) && d.getTime() > Date.now() + 60000) departAt = d;
+      }
+
+      var query = {
         origins:      [a],
         destinations: [b],
         travelMode:   google.maps.TravelMode.DRIVING,
         unitSystem:   google.maps.UnitSystem.METRIC
-      }, function (res, status) {
+      };
+      if (departAt) {
+        query.drivingOptions = {
+          departureTime: departAt,
+          trafficModel:  google.maps.TrafficModel.BEST_GUESS
+        };
+      }
+
+      service.getDistanceMatrix(query, function (res, status) {
 
         if (status !== 'OK' || !res || !res.rows || !res.rows[0]) {
           onFailure();
@@ -91,14 +166,15 @@
         if (!el || el.status !== 'OK') { onFailure(); return; }
 
         var km  = el.distance.value / 1000;
-        var min = el.duration.value / 60;
+        // duration_in_traffic is only returned when departureTime was sent.
+        var min = (el.duration_in_traffic || el.duration).value / 60;
 
         kmField.value = km.toFixed(1);
         if (mnField) mnField.value = min.toFixed(0);
 
         if (hintEl) {
-          hintEl.textContent = km.toFixed(1) + ' km · about ' +
-            Math.round(min) + ' min in current conditions.';
+          hintEl.textContent = km.toFixed(1) + ' km · about ' + Math.round(min) +
+            ' min' + (el.duration_in_traffic ? ' in expected traffic.' : '.');
         }
 
         // Nudge the wizard to re-price with the real route.

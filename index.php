@@ -1,6 +1,7 @@
 <?php
 /** Home page. */
 require_once __DIR__ . '/includes/functions.php';
+require_once __DIR__ . '/includes/uploads.php';
 
 $page_slug        = 'home';
 $page_title       = setting('hero_title', 'Luxury Chauffeur Services in Toronto');
@@ -8,8 +9,12 @@ $page_description = setting('meta_description',
     'Prime Luxury Rides Toronto — premium chauffeur service for airport transfers, corporate travel and special events across Toronto & the GTA. Licensed, insured, available 24/7.');
 
 $vehicles  = get_vehicles();
-$hero_file = ROOT_PATH . '/assets/img/hero.jpg';
-$has_hero  = is_file($hero_file);
+// Admin upload wins; a hand-placed assets/img/hero.jpg still works as a fallback.
+$hero_url = site_image_url('hero_image');
+if ($hero_url === null && is_file(ROOT_PATH . '/assets/img/hero.jpg')) {
+    $hero_url = '/assets/img/hero.jpg';
+}
+$has_hero = ($hero_url !== null);
 
 require __DIR__ . '/includes/header.php';
 ?>
@@ -18,7 +23,7 @@ require __DIR__ . '/includes/header.php';
 <section class="hero">
   <?php if ($has_hero): ?>
   <div class="hero__bg">
-    <img src="assets/img/hero.jpg" alt="" width="1920" height="1080" fetchpriority="high">
+    <img src="<?= e(ltrim($hero_url, '/')) ?>" alt="" width="1920" height="1080" fetchpriority="high">
   </div>
   <?php else: ?>
   <div class="hero__bg" aria-hidden="true"

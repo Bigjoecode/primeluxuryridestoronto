@@ -28,6 +28,7 @@ $nav = [
     ]],
     ['Configuration', [
         ['vehicles.php', 'car',       'Vehicles',  ''],
+        ['images.php',   'sparkles',  'Site Images', ''],
         ['rates.php',    'tag',       'Flat Rates',''],
         ['settings.php', 'settings',  'Settings',  ''],
     ]],

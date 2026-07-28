@@ -36,8 +36,15 @@ $nav_items = [
     ['href' => 'fleet.php',    'label' => 'Fleet',    'slug' => 'fleet',    'icon' => 'car'],
     ['href' => 'rates.php',    'label' => 'Rates',    'slug' => 'rates',    'icon' => 'tag'],
     ['href' => 'rentals.php',  'label' => 'Rentals',  'slug' => 'rentals',  'icon' => 'key'],
+    ['href' => 'membership.php', 'label' => 'Membership', 'slug' => 'membership', 'icon' => 'crown'],
     ['href' => 'contact.php',  'label' => 'Contact',  'slug' => 'contact',  'icon' => 'mail'],
 ];
+
+// Membership can be switched off entirely in Admin → Settings.
+if ((int)setting_num('membership_enabled', 1) !== 1) {
+    $nav_items = array_values(array_filter($nav_items,
+        fn($i) => $i['slug'] !== 'membership'));
+}
 ?>
 <!DOCTYPE html>
 <html lang="en-CA">

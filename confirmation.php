@@ -23,6 +23,32 @@ if ($booking && !empty($booking['price_breakdown'])) {
 // Payment return states (set by Stripe success/cancel URLs)
 $paid_flag  = (string)($_GET['paid'] ?? '');
 $pay_error  = trim((string)($_GET['pay_error'] ?? ''));
+
+/*
+ * Confirm payment on the return trip rather than waiting for the webhook.
+ *
+ * The webhook is the reliable backstop — it fires even if the customer
+ * closes the tab — but it may not be configured yet, and a customer who
+ * has just paid should never be shown "unpaid". We ask Stripe directly
+ * what happened to the session and record it. Both routes call the same
+ * function, so they cannot disagree, and it is idempotent.
+ */
+if ($booking && $paid_flag === '1'
+    && stripe_enabled()
+    && $booking['payment_status'] === 'unpaid'
+    && !empty($booking['stripe_session_id'])) {
+
+    try {
+        $session = stripe_get_session((string)$booking['stripe_session_id']);
+        if ($session && stripe_apply_paid_session($booking, $session)) {
+            // Re-read so the page below renders the new status.
+            $booking = db_one('SELECT * FROM `bookings` WHERE `id` = ? LIMIT 1',
+                              [(int)$booking['id']]);
+        }
+    } catch (Throwable $ex) {
+        app_log('errors.log', 'payment confirm failed: ' . $ex->getMessage());
+    }
+}
 $can_pay    = $booking
            && stripe_enabled()
            && $booking['payment_status'] === 'unpaid'

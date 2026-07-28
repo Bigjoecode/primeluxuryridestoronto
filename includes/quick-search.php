@@ -40,7 +40,7 @@ $qs_min = (new DateTime())->modify('+' . MIN_LEAD_TIME_HOURS . ' hours')->format
       <label class="qs-field__label" for="qs_from">Pickup</label>
       <div class="qs-field__control">
         <?= icon('map-pin', 'qs-field__icon', 18) ?>
-        <input class="qs-field__input" type="text" id="qs_from" name="from"
+        <input class="qs-field__input" type="text" id="qs_from" name="from" data-places
                placeholder="Address, hotel or airport" autocomplete="off">
       </div>
     </div>
@@ -49,7 +49,7 @@ $qs_min = (new DateTime())->modify('+' . MIN_LEAD_TIME_HOURS . ' hours')->format
       <label class="qs-field__label" for="qs_to">Drop-off</label>
       <div class="qs-field__control">
         <?= icon('navigation', 'qs-field__icon', 18) ?>
-        <input class="qs-field__input" type="text" id="qs_to" name="to"
+        <input class="qs-field__input" type="text" id="qs_to" name="to" data-places
                placeholder="Where are you going?" autocomplete="off">
       </div>
     </div>
