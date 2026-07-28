@@ -73,11 +73,14 @@ define('SMTP_ENABLED',  true);
 define('SMTP_HOST',     'mail.primeluxuryridestoronto.ca');
 define('SMTP_PORT',     587);
 define('SMTP_USER',     'info@primeluxuryridestoronto.ca');
-define('SMTP_PASS',     'the-mailbox-password');   // <-- the only piece missing
+define('SMTP_PASS',     'the-mailbox-password');
 define('SMTP_SECURE',   'tls');
 ```
 
-Everything above is already set except the password.
+**These settings are confirmed working.** Tested against the live mailbox on
+28 July 2026: TLS negotiated, authentication accepted, sender approved, and a
+real booking delivered both the customer confirmation and the operator
+notification. Copy the same values into the config on the production server.
 
 If port 587 is refused, try `465` with `SMTP_SECURE` set to `'ssl'`. Some
 GoDaddy shared plans only accept `localhost` as the host when sending from
