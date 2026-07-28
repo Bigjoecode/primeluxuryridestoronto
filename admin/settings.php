@@ -1,6 +1,7 @@
 <?php
 /** Site settings: contact info, social, pricing globals, page text, password. */
 require_once __DIR__ . '/includes/auth.php';
+require_once __DIR__ . '/../includes/mailer.php';
 $admin = require_admin();
 
 $admin_page  = 'settings.php';
@@ -33,6 +34,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         app_log('admin.log', $admin['email'] . " updated $saved settings");
         flash('success', 'Settings saved.');
         header('Location: settings.php');
+        exit;
+    }
+
+    // ── Mail diagnostic ─────────────────────────────────────────────
+    if ($action === 'mailtest') {
+        $_SESSION['mail_diag'] = smtp_diagnose();
+
+        // Only attempt a real send once the handshake itself is sound.
+        if ($_SESSION['mail_diag']['ok']) {
+            $to = trim((string)($_POST['test_to'] ?? '')) ?: ADMIN_EMAIL;
+            if (filter_var($to, FILTER_VALIDATE_EMAIL)) {
+                $sent = send_mail($to, 'Prime Luxury Rides — test email',
+                    email_shell('Your email is working',
+                        '<p style="margin:0 0 16px;">This is a test sent from your admin panel.</p>'
+                      . '<p style="margin:0;">Booking confirmations and enquiry notifications '
+                      . 'will reach you correctly.</p>'));
+                $_SESSION['mail_diag']['sent_to'] = $to;
+                $_SESSION['mail_diag']['sent_ok'] = $sent;
+            }
+        }
+        header('Location: settings.php#mail');
         exit;
     }
 
@@ -214,6 +236,89 @@ require __DIR__ . '/includes/header.php';
         <dd><?= e(ADMIN_EMAIL) ?></dd>
       </div>
     </div>
+  </div>
+</div>
+
+
+<!-- ══ MAIL TEST ═══════════════════════════════════════════════════ -->
+<?php
+$diag = $_SESSION['mail_diag'] ?? null;
+unset($_SESSION['mail_diag']);
+?>
+<div class="panel" id="mail">
+  <div class="panel__head">
+    <span class="stat-card__icon"><?= icon('mail') ?></span>
+    <div>
+      <h2 class="panel__title">Email delivery test</h2>
+      <p class="muted" style="font-size:var(--fs-sm);">
+        Confirm bookings will actually reach you. Run this on the live server.</p>
+    </div>
+  </div>
+  <div class="panel__body">
+
+    <?php if ($diag): ?>
+    <div class="alert alert--<?= $diag['ok'] ? 'success' : 'error' ?>">
+      <?= icon($diag['ok'] ? 'check-circle' : 'alert') ?>
+      <span>
+        <?php if (!empty($diag['sent_ok'])): ?>
+          <strong>Test email sent to <?= e((string)$diag['sent_to']) ?>.</strong>
+          Check the inbox &mdash; and the spam folder.
+        <?php elseif ($diag['ok']): ?>
+          <strong>The mail server accepted the connection</strong>, but the message itself
+          was not accepted. See <code>logs/mail.log</code>.
+        <?php else: ?>
+          <strong>Email is not working yet.</strong> The stage that failed is marked below.
+        <?php endif; ?>
+      </span>
+    </div>
+
+    <table class="data-table" style="min-width:0;margin-bottom:var(--s-5);">
+      <tbody>
+        <?php foreach ($diag['steps'] as $s): ?>
+        <tr>
+          <td data-label="Stage" style="width:32%;font-weight:600;"><?= e($s['label']) ?></td>
+          <td data-label="Result" style="width:12%;">
+            <span class="badge-status <?= $s['ok'] ? 'badge-completed' : 'badge-cancelled' ?>">
+              <?= $s['ok'] ? 'OK' : 'Failed' ?></span>
+          </td>
+          <td data-label="Server said" class="muted" style="word-break:break-word;font-size:var(--fs-sm);">
+            <?= e($s['detail']) ?>
+          </td>
+        </tr>
+        <?php endforeach; ?>
+      </tbody>
+    </table>
+
+    <?php if (!empty($diag['hint'])): ?>
+    <div class="alert alert--gold">
+      <?= icon('info') ?><span><strong>What to do:</strong> <?= e($diag['hint']) ?></span>
+    </div>
+    <?php endif; ?>
+    <?php endif; ?>
+
+    <div class="dl-grid mb-5">
+      <div class="dl-item"><dt>Mode</dt>
+        <dd><?= SMTP_ENABLED ? 'SMTP' : 'PHP mail() — not reliable' ?></dd></div>
+      <div class="dl-item"><dt>Server</dt>
+        <dd><?= SMTP_ENABLED ? e(SMTP_HOST . ':' . SMTP_PORT . ' (' . SMTP_SECURE . ')') : '—' ?></dd></div>
+      <div class="dl-item"><dt>Sends as</dt><dd><?= e(MAIL_FROM) ?></dd></div>
+      <div class="dl-item"><dt>Notifications to</dt><dd><?= e(ADMIN_EMAIL) ?></dd></div>
+    </div>
+
+    <form method="post">
+      <?= csrf_field() ?>
+      <input type="hidden" name="action" value="mailtest">
+      <div class="field">
+        <label class="field__label" for="test_to">Send the test to</label>
+        <input class="input" type="email" id="test_to" name="test_to"
+               value="<?= e(ADMIN_EMAIL) ?>" inputmode="email">
+        <span class="field__hint">Try your own personal address too &mdash; it proves mail
+          leaves the building, not just that it loops back internally.</span>
+      </div>
+      <button type="submit" class="btn btn--gold">
+        <?= icon('mail') ?><span>Run test</span>
+      </button>
+    </form>
   </div>
 </div>
 

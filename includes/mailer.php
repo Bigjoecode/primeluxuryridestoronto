@@ -64,6 +64,169 @@ function send_mail(string $to, string $subject, string $html, string $reply_to =
 }
 
 /**
+ * Step-by-step SMTP diagnostic.
+ *
+ * Exists because "email didn't arrive" is the single hardest thing to debug
+ * on a live site, and the usual failure — a provider refusing basic
+ * authentication — looks identical to a wrong password unless you read the
+ * actual server reply. This walks the handshake and reports each stage with
+ * the server's own response.
+ *
+ * @return array{steps:array<int,array{label:string,ok:bool,detail:string}>, ok:bool, hint:?string}
+ */
+function smtp_diagnose(): array
+{
+    $steps = [];
+    $hint  = null;
+    $add   = function (string $label, bool $ok, string $detail = '') use (&$steps) {
+        $steps[] = ['label' => $label, 'ok' => $ok, 'detail' => trim($detail)];
+    };
+
+    if (!SMTP_ENABLED) {
+        $add('SMTP enabled', false, 'SMTP_ENABLED is false — the site is using PHP mail().');
+        return ['steps' => $steps, 'ok' => false,
+                'hint'  => 'Set SMTP_ENABLED to true in includes/config.php.'];
+    }
+    $add('SMTP enabled', true, SMTP_HOST . ':' . SMTP_PORT . ' (' . SMTP_SECURE . ')');
+
+    // 1. DNS
+    $ip = @gethostbyname(SMTP_HOST);
+    if ($ip === SMTP_HOST) {
+        $add('Resolve host', false, 'DNS lookup for ' . SMTP_HOST . ' failed.');
+        return ['steps' => $steps, 'ok' => false,
+                'hint'  => 'Check SMTP_HOST spelling, and that this server can resolve DNS.'];
+    }
+    $add('Resolve host', true, SMTP_HOST . ' → ' . $ip);
+
+    // 2. TCP
+    $host = SMTP_SECURE === 'ssl' ? 'ssl://' . SMTP_HOST : SMTP_HOST;
+    $ctx  = stream_context_create(['ssl' => ['verify_peer' => true, 'verify_peer_name' => true]]);
+    $sock = @stream_socket_client("$host:" . SMTP_PORT, $errno, $errstr, 15,
+                                  STREAM_CLIENT_CONNECT, $ctx);
+    if (!$sock) {
+        $add('Connect', false, "$errstr (errno $errno)");
+        return ['steps' => $steps, 'ok' => false,
+                'hint'  => 'Port ' . SMTP_PORT . ' is not reachable from this server. Many '
+                         . 'networks block outbound SMTP — ask your host to open it, or try '
+                         . 'port 465 with SMTP_SECURE set to "ssl".'];
+    }
+    $add('Connect', true, 'TCP connection established');
+    stream_set_timeout($sock, 15);
+
+    $read = function () use ($sock): string {
+        $data = '';
+        while (($line = fgets($sock, 515)) !== false) {
+            $data .= $line;
+            if (strlen($line) < 4 || $line[3] === ' ') break;
+        }
+        return trim($data);
+    };
+    $say = function (string $cmd) use ($sock, $read): string {
+        fwrite($sock, $cmd . "\r\n");
+        return $read();
+    };
+
+    $greeting = $read();
+    $add('Server greeting', strncmp($greeting, '220', 3) === 0, $greeting);
+
+    $ehlo = 'EHLO ' . (parse_url(SITE_URL, PHP_URL_HOST) ?: 'localhost');
+    $caps = $say($ehlo);
+    $add('EHLO', strncmp($caps, '250', 3) === 0, $caps);
+
+    // 3. TLS
+    if (SMTP_SECURE === 'tls') {
+        $r = $say('STARTTLS');
+        if (strncmp($r, '220', 3) !== 0) {
+            $add('STARTTLS', false, $r);
+            fclose($sock);
+            return ['steps' => $steps, 'ok' => false,
+                    'hint'  => 'The server refused STARTTLS. Try port 465 with SMTP_SECURE = "ssl".'];
+        }
+        if (!@stream_socket_enable_crypto($sock, true, STREAM_CRYPTO_METHOD_TLS_CLIENT)) {
+            $add('STARTTLS', false, 'TLS handshake failed.');
+            fclose($sock);
+            return ['steps' => $steps, 'ok' => false,
+                    'hint'  => 'TLS negotiation failed — usually an out-of-date CA bundle on the server.'];
+        }
+        $add('STARTTLS', true, 'Encrypted');
+        $caps = $say($ehlo);
+        $add('EHLO (encrypted)', strncmp($caps, '250', 3) === 0, $caps);
+    }
+
+    // 4. Auth
+    if (SMTP_USER !== '') {
+        if (stripos($caps, 'AUTH') === false) {
+            $add('AUTH offered', false, 'The server did not advertise AUTH after TLS.');
+            fclose($sock);
+            return ['steps' => $steps, 'ok' => false,
+                    'hint'  => 'This server is not accepting authenticated submission on this port.'];
+        }
+        $add('AUTH offered', true, 'Server advertises authentication');
+
+        $r = $say('AUTH LOGIN');
+        if (strncmp($r, '334', 3) !== 0) {
+            $add('AUTH LOGIN', false, $r);
+            fclose($sock);
+            return ['steps' => $steps, 'ok' => false, 'hint' => smtp_auth_hint($r)];
+        }
+        $say(base64_encode(SMTP_USER));
+        $r = $say(base64_encode(SMTP_PASS));
+
+        if (strncmp($r, '235', 3) !== 0) {
+            $add('Authenticate', false, $r);
+            fclose($sock);
+            return ['steps' => $steps, 'ok' => false, 'hint' => smtp_auth_hint($r)];
+        }
+        $add('Authenticate', true, 'Signed in as ' . SMTP_USER);
+    }
+
+    // 5. Envelope — proves the From address is permitted, without sending.
+    $r = $say('MAIL FROM:<' . MAIL_FROM . '>');
+    $ok_from = strncmp($r, '250', 3) === 0;
+    $add('Sender accepted', $ok_from, $r);
+    if (!$ok_from) {
+        $hint = 'The server rejected ' . MAIL_FROM . ' as a sender. It usually must match '
+              . 'the mailbox you authenticated with (' . SMTP_USER . ').';
+    }
+
+    $say('QUIT');
+    fclose($sock);
+
+    $all_ok = $ok_from;
+    foreach ($steps as $s) {
+        if (!$s['ok']) { $all_ok = false; }
+    }
+
+    return ['steps' => $steps, 'ok' => $all_ok, 'hint' => $hint];
+}
+
+/** Turn a rejected-auth reply into something actionable. */
+function smtp_auth_hint(string $reply): string
+{
+    $r = strtolower($reply);
+
+    if (str_contains($r, 'basic authentication is disabled')
+        || str_contains($r, 'smtpclientauthentication')
+        || str_contains($r, 'authentication unsuccessful') && str_contains($r, 'outlook')) {
+        return 'Microsoft 365 has SMTP AUTH disabled for this mailbox. In the Microsoft 365 '
+             . 'admin centre open Users → Active users → this user → Mail → Manage email apps, '
+             . 'and tick "Authenticated SMTP". If the account uses MFA you must also create an '
+             . 'app password and use that here instead of the normal one.';
+    }
+    if (str_contains($r, '535') || str_contains($r, 'authentication failed')
+        || str_contains($r, 'invalid credentials')) {
+        return 'The mailbox rejected these credentials. Check the username is the full email '
+             . 'address and the password is current. If the account has MFA enabled, a normal '
+             . 'password will always be refused — you need an app password.';
+    }
+    if (str_contains($r, '5.7.57') || str_contains($r, 'must issue a starttls')) {
+        return 'The server requires encryption before authentication. Set SMTP_SECURE to "tls" '
+             . 'with port 587, or "ssl" with port 465.';
+    }
+    return 'The mail server refused authentication. Its exact reply is shown above.';
+}
+
+/**
  * Minimal SMTP client (AUTH LOGIN + STARTTLS/SSL). No external dependency.
  */
 function smtp_send(string $to, string $subject, string $body, array $headers): bool
