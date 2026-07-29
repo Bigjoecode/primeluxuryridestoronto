@@ -219,6 +219,42 @@ function smtp_diagnose(): array
               . 'the mailbox you authenticated with (' . SMTP_USER . ').';
     }
 
+    /*
+     * Is this domain actually delivered here, or relayed onward?
+     *
+     * Offer the server an address that cannot exist. A host delivering
+     * the domain locally knows its own mailboxes and answers 550. One
+     * that is configured to hand the domain to a remote mail exchanger
+     * accepts anything, because it is not the final destination — and
+     * that is why mail can be accepted with 250 and then never appear
+     * in the local inbox. Only ever RCPT here; no DATA, so no mail is
+     * created either way.
+     */
+    $domain_local = substr(strrchr(ADMIN_EMAIL, '@') ?: '', 1);
+    if ($ok_from && $domain_local !== '') {
+        $canary = 'plr-no-such-mailbox-' . bin2hex(random_bytes(4)) . '@' . $domain_local;
+        $rc = $say('RCPT TO:<' . $canary . '>');
+        $say('RSET');
+
+        $rejects_unknown = (strncmp($rc, '550', 3) === 0 || strncmp($rc, '551', 3) === 0
+                         || strncmp($rc, '553', 3) === 0);
+
+        $add('Delivers locally', $rejects_unknown,
+             $rejects_unknown
+                ? 'Unknown mailboxes are rejected, as they should be'
+                : 'Server accepted a non-existent mailbox (' . trim($rc) . ')');
+
+        if (!$rejects_unknown) {
+            $hint = 'Mail is being sent and accepted, but this server is not delivering '
+                  . $domain_local . ' to its own mailboxes — it accepts any address and '
+                  . 'forwards it on, so nothing reaches the cPanel inbox. Fix it in cPanel: '
+                  . 'Email → Email Routing → select ' . $domain_local . ' → choose '
+                  . '"Local Mail Exchanger" → Change Routing. With the MX record already '
+                  . 'pointing here, remote routing also makes the server mail itself, so '
+                  . 'messages are looped and discarded.';
+        }
+    }
+
     $say('QUIT');
     fclose($sock);
 

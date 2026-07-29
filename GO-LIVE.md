@@ -86,7 +86,26 @@ If port 587 is refused, try `465` with `SMTP_SECURE` set to `'ssl'`. Some
 GoDaddy shared plans only accept `localhost` as the host when sending from
 the same server — if both ports fail, set `SMTP_HOST` to `'localhost'`.
 
-### ⚠ Your MX record still points at Microsoft 365
+### If mail is accepted but never arrives
+
+Two settings decide this, and both must agree. The site can authenticate and
+get a `250 OK` while nothing reaches the inbox, because acceptance is not
+delivery.
+
+1. **MX record** — must point at `mail.primeluxuryridestoronto.ca`.
+2. **cPanel → Email → Email Routing** — select the domain and choose
+   **Local Mail Exchanger**, then *Change Routing*.
+
+If routing is left on *Remote Mail Exchanger* while MX points at this same
+server, mail is handed to the "remote" host — which is itself — so it loops
+and is discarded. The symptom is an empty inbox at 0% usage despite every send
+reporting success.
+
+**Admin → Settings → Email delivery test** detects this: it offers the server a
+mailbox that cannot exist. A server delivering locally rejects it with 550; one
+routing remotely accepts anything, and the test says so.
+
+### ⚠ Historical note: the MX record previously pointed at Microsoft 365
 
 `primeluxuryridestoronto.ca` currently has one MX record:
 `primeluxuryridestoronto-ca.mail.protection.outlook.com`.
