@@ -237,16 +237,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                     $booking = db_one('SELECT * FROM `bookings` WHERE `reference` = ? LIMIT 1', [$ref]);
 
-                    // Emails are best-effort: a delivery failure must not
-                    // lose the booking, which is already saved.
+                    // Redirect first. The booking is already saved, and the
+                    // mail host can stall a send for ~40s when throttled —
+                    // the customer must not wait on that after pressing
+                    // Confirm. Emails then send with nobody watching.
+                    redirect_then_continue('confirmation.php?ref=' . urlencode($ref));
+
+                    // Best-effort: a delivery failure must never lose a
+                    // booking that is already committed.
                     try {
                         send_booking_customer_email($booking);
                         send_booking_admin_email($booking);
                     } catch (Throwable $ex) {
                         app_log('errors.log', 'booking email failed: ' . $ex->getMessage());
                     }
-
-                    header('Location: confirmation.php?ref=' . urlencode($ref));
                     exit;
 
                 } catch (Throwable $ex) {

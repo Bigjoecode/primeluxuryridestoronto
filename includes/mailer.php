@@ -47,7 +47,25 @@ function send_mail(string $to, string $subject, string $html, string $reply_to =
     $sent = false;
     try {
         if (SMTP_ENABLED) {
-            $sent = smtp_send($to, $encoded_subject, $body, $headers);
+            /*
+             * Shared hosts throttle rapid SMTP connections — GoDaddy will
+             * accept one message and then stall the next handshake for
+             * ~40s before dropping it. A single booking triggers two
+             * emails back to back, which is exactly the pattern that
+             * trips it, so retry briefly rather than losing the second.
+             */
+            $attempts = 3;
+            for ($i = 1; $i <= $attempts; $i++) {
+                $sent = smtp_send($to, $encoded_subject, $body, $headers);
+                if ($sent) {
+                    break;
+                }
+                if ($i < $attempts) {
+                    app_log('mail.log', sprintf('Attempt %d/%d failed; retrying in %ds.',
+                            $i, $attempts, $i * 5));
+                    sleep($i * 5);          // 5s, then 10s
+                }
+            }
         } else {
             $sent = @mail($to, $encoded_subject, $body, implode("\r\n", $headers));
         }
@@ -204,6 +222,58 @@ function smtp_diagnose(): array
     $say('QUIT');
     fclose($sock);
 
+    /*
+     * Where will mail to ADMIN_EMAIL actually land?
+     *
+     * A successful handshake only proves the server queued the message. If
+     * the recipient domain's MX points somewhere other than the host we
+     * just authenticated with, the mail is relayed on to that provider
+     * instead of being delivered to the local mailbox — so it is accepted
+     * with 250 and then quietly arrives somewhere nobody is watching.
+     * This is the single most confusing mail failure there is, so name it.
+     */
+    $domain = substr(strrchr(ADMIN_EMAIL, '@') ?: '', 1);
+    if ($domain !== '') {
+        // getmxrr() is unreliable on Windows, so prefer dns_get_record()
+        // and fall back only if it is unavailable.
+        $mx = [];
+        $recs = function_exists('dns_get_record') ? @dns_get_record($domain, DNS_MX) : false;
+        if (is_array($recs) && $recs) {
+            usort($recs, fn($a, $b) => ($a['pri'] ?? 0) <=> ($b['pri'] ?? 0));
+            foreach ($recs as $rec) {
+                if (!empty($rec['target'])) { $mx[] = $rec['target']; }
+            }
+        } elseif (function_exists('getmxrr')) {
+            @getmxrr($domain, $mx);
+        }
+
+        if ($mx) {
+            $smtp_host = strtolower(SMTP_HOST);
+            $local = false;
+            foreach ($mx as $host) {
+                $host = strtolower(rtrim($host, '.'));
+                if ($host === $smtp_host
+                    || str_ends_with($smtp_host, $host)
+                    || str_ends_with($host, $domain)) {
+                    $local = true;
+                    break;
+                }
+            }
+            $first = strtolower(rtrim($mx[0], '.'));
+            $add('Inbound routing (MX)', $local, $domain . ' → ' . $first);
+
+            if (!$local) {
+                $hint = 'Mail is being SENT correctly, but ' . $domain . ' has its MX record '
+                      . 'pointing at "' . $first . '", not at ' . SMTP_HOST . '. Your mail '
+                      . 'server accepts the message and then forwards it there, so it never '
+                      . 'reaches the mailbox on this host. Fix it in two places: in cPanel '
+                      . 'set Email Routing for this domain to "Local Mail Exchanger", and in '
+                      . 'DNS point the MX record at ' . SMTP_HOST . ' (priority 0), removing '
+                      . 'the old one.';
+            }
+        }
+    }
+
     $all_ok = $ok_from;
     foreach ($steps as $s) {
         if (!$s['ok']) { $all_ok = false; }
@@ -243,17 +313,21 @@ function smtp_auth_hint(string $reply): string
  */
 function smtp_send(string $to, string $subject, string $body, array $headers): bool
 {
-    $host    = SMTP_SECURE === 'ssl' ? 'ssl://' . SMTP_HOST : SMTP_HOST;
-    $ctx     = stream_context_create(['ssl' => ['verify_peer' => true, 'verify_peer_name' => true]]);
-    $socket  = @stream_socket_client("$host:" . SMTP_PORT, $errno, $errstr, 20,
-                                     STREAM_CLIENT_CONNECT, $ctx);
-    if (!$socket) {
-        app_log('mail.log', "SMTP connect failed: $errstr ($errno)");
-        return false;
-    }
-    stream_set_timeout($socket, 20);
+    /*
+     * The authenticated connection is held open for the life of the
+     * request and reused.
+     *
+     * A single booking sends two emails back to back. Opening a second
+     * connection immediately is exactly what shared hosts throttle —
+     * GoDaddy stalls the handshake for ~40s and then drops it. Sending
+     * both messages down one already-authenticated connection avoids the
+     * throttle entirely, and is what SMTP is designed for anyway.
+     */
+    static $socket = null;
 
-    $read = function () use ($socket): string {
+    $ehlo = 'EHLO ' . (parse_url(SITE_URL, PHP_URL_HOST) ?: 'localhost');
+
+    $read = function () use (&$socket): string {
         $data = '';
         while (($line = fgets($socket, 515)) !== false) {
             $data .= $line;
@@ -261,39 +335,62 @@ function smtp_send(string $to, string $subject, string $body, array $headers): b
         }
         return $data;
     };
-    $cmd = function (string $c, string $expect) use ($socket, $read): bool {
+    $cmd = function (string $c, string $expect) use (&$socket, $read): bool {
         fwrite($socket, $c . "\r\n");
         $r = $read();
         if (strncmp($r, $expect, strlen($expect)) !== 0) {
-            app_log('mail.log', "SMTP: `$c` → $r");
+            app_log('mail.log', "SMTP: `$c` → " . trim($r));
             return false;
         }
         return true;
     };
+    $drop = function () use (&$socket): void {
+        if (is_resource($socket)) { @fclose($socket); }
+        $socket = null;
+    };
 
-    $read(); // greeting
-    $ehlo = 'EHLO ' . (parse_url(SITE_URL, PHP_URL_HOST) ?: 'localhost');
-
-    if (!$cmd($ehlo, '250')) { fclose($socket); return false; }
-
-    if (SMTP_SECURE === 'tls') {
-        if (!$cmd('STARTTLS', '220')) { fclose($socket); return false; }
-        if (!stream_socket_enable_crypto($socket, true, STREAM_CRYPTO_METHOD_TLS_CLIENT)) {
-            app_log('mail.log', 'SMTP: TLS handshake failed');
-            fclose($socket); return false;
+    // Reuse an open connection, but prove it is still alive first — the
+    // server may have timed it out since the previous message.
+    if (is_resource($socket)) {
+        if (feof($socket) || !$cmd('RSET', '250')) {
+            $drop();
         }
-        if (!$cmd($ehlo, '250')) { fclose($socket); return false; }
     }
 
-    if (SMTP_USER !== '') {
-        if (!$cmd('AUTH LOGIN', '334'))                    { fclose($socket); return false; }
-        if (!$cmd(base64_encode(SMTP_USER), '334'))        { fclose($socket); return false; }
-        if (!$cmd(base64_encode(SMTP_PASS), '235'))        { fclose($socket); return false; }
+    if (!is_resource($socket)) {
+        $host = SMTP_SECURE === 'ssl' ? 'ssl://' . SMTP_HOST : SMTP_HOST;
+        $ctx  = stream_context_create(['ssl' => ['verify_peer' => true, 'verify_peer_name' => true]]);
+        $socket = @stream_socket_client("$host:" . SMTP_PORT, $errno, $errstr, 20,
+                                        STREAM_CLIENT_CONNECT, $ctx);
+        if (!$socket) {
+            app_log('mail.log', "SMTP connect failed: $errstr ($errno)");
+            $socket = null;
+            return false;
+        }
+        stream_set_timeout($socket, 20);
+
+        $read(); // greeting
+        if (!$cmd($ehlo, '250')) { $drop(); return false; }
+
+        if (SMTP_SECURE === 'tls') {
+            if (!$cmd('STARTTLS', '220')) { $drop(); return false; }
+            if (!stream_socket_enable_crypto($socket, true, STREAM_CRYPTO_METHOD_TLS_CLIENT)) {
+                app_log('mail.log', 'SMTP: TLS handshake failed');
+                $drop(); return false;
+            }
+            if (!$cmd($ehlo, '250')) { $drop(); return false; }
+        }
+
+        if (SMTP_USER !== '') {
+            if (!$cmd('AUTH LOGIN', '334'))             { $drop(); return false; }
+            if (!$cmd(base64_encode(SMTP_USER), '334')) { $drop(); return false; }
+            if (!$cmd(base64_encode(SMTP_PASS), '235')) { $drop(); return false; }
+        }
     }
 
-    if (!$cmd('MAIL FROM:<' . MAIL_FROM . '>', '250')) { fclose($socket); return false; }
-    if (!$cmd('RCPT TO:<' . $to . '>', '250'))         { fclose($socket); return false; }
-    if (!$cmd('DATA', '354'))                          { fclose($socket); return false; }
+    if (!$cmd('MAIL FROM:<' . MAIL_FROM . '>', '250')) { $drop(); return false; }
+    if (!$cmd('RCPT TO:<' . $to . '>', '250'))         { $drop(); return false; }
+    if (!$cmd('DATA', '354'))                          { $drop(); return false; }
 
     // Dot-stuffing per RFC 5321.
     $payload = implode("\r\n", $headers) . "\r\n"
@@ -305,9 +402,14 @@ function smtp_send(string $to, string $subject, string $body, array $headers): b
     fwrite($socket, $payload . "\r\n.\r\n");
     $ok = strncmp($read(), '250', 3) === 0;
 
-    $cmd('QUIT', '221');
-    fclose($socket);
-    return $ok;
+    if (!$ok) {
+        $drop();                    // connection state is unknown after a refusal
+        return false;
+    }
+
+    // Deliberately no QUIT — the connection stays open for the next
+    // message. PHP closes it when the request ends.
+    return true;
 }
 
 // ── Templates ──────────────────────────────────────────────────────

@@ -286,6 +286,44 @@ function app_log(string $file, string $line): void
     );
 }
 
+/**
+ * Send the redirect to the browser and keep running server-side.
+ *
+ * Booking confirmation emails go through a shared mail host that
+ * throttles rapid connections, which can stall a send for the better
+ * part of a minute. That must not leave the customer watching a spinner
+ * after they have already pressed Confirm — the booking is saved by this
+ * point, so the redirect is honest. This flushes the response, then lets
+ * the script carry on sending mail with nobody waiting on it.
+ *
+ * Call instead of header('Location: …') + exit, then do the slow work.
+ */
+function redirect_then_continue(string $location): void
+{
+    ignore_user_abort(true);
+
+    if (!headers_sent()) {
+        header('Location: ' . $location, true, 303);
+        header('Content-Length: 0');
+        header('Connection: close');
+    }
+
+    // Clear any buffering so the response actually leaves now.
+    while (ob_get_level() > 0) {
+        @ob_end_flush();
+    }
+    @flush();
+
+    // php-fpm can hand the connection back immediately; other SAPIs rely
+    // on the headers above plus the flush.
+    if (function_exists('fastcgi_finish_request')) {
+        @fastcgi_finish_request();
+    }
+
+    // Slow work should not be killed by the web server's normal limit.
+    @set_time_limit(120);
+}
+
 /** Generate the next booking reference, e.g. PLR-2026-0042. */
 function next_booking_reference(): string
 {
