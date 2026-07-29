@@ -20,6 +20,20 @@ AddDefaultCharset UTF-8
 <IfModule mod_rewrite.c>
   RewriteEngine On
 
+  # ── Deny private paths FIRST ───────────────────────────────────────
+  # These must be rewrite rules, not the RedirectMatch rules further
+  # down: in .htaccess mod_rewrite runs before mod_alias, so the
+  # extension-stripping redirect below would otherwise fire first and
+  # /includes/db.php would end up executed as /includes/db instead of
+  # being refused. Blocking here happens before any of that.
+  RewriteRule ^\.git(/|$)      - [F,L]
+  RewriteRule ^\.github(/|$)   - [F,L]
+  RewriteRule ^\.vscode(/|$)   - [F,L]
+  RewriteRule ^\.kilocode(/|$) - [F,L]
+  RewriteRule ^includes(/|$)   - [F,L]
+  RewriteRule ^sql(/|$)        - [F,L]
+  RewriteRule ^logs(/|$)       - [F,L]
+
   # Dynamic sitemap served at the conventional /sitemap.xml
   RewriteRule ^sitemap\.xml$ sitemap.php [L]
 
