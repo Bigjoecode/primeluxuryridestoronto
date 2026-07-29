@@ -25,9 +25,26 @@ APP_DIR='~/public_html'
 BRANCH=main
 
 ssh_run() {
-  # One connection per invocation: this host rate-limits rapid SSH dials.
-  ssh -o ControlMaster=no -o ControlPath=none -o BatchMode=yes \
-      -o ConnectTimeout=25 "$REMOTE" "export TERM=dumb; $1"
+  # This host rate-limits SSH dials and will simply drop the TCP connect
+  # for a while after a few in quick succession. That is indistinguishable
+  # from an outage on a single attempt, so back off and retry rather than
+  # failing a deploy that would have worked thirty seconds later.
+  local attempt=1 max=4 wait=20
+  while :; do
+    if ssh -o ControlMaster=no -o ControlPath=none -o BatchMode=yes \
+           -o ConnectTimeout=25 "$REMOTE" "export TERM=dumb; $1"; then
+      return 0
+    fi
+    if [ "$attempt" -ge "$max" ]; then
+      echo "  SSH failed after $max attempts. The host is likely throttling —" >&2
+      echo "  wait a couple of minutes and run it again." >&2
+      return 1
+    fi
+    echo "  connection refused (attempt $attempt/$max) — retrying in ${wait}s..." >&2
+    sleep "$wait"
+    attempt=$((attempt + 1))
+    wait=$((wait * 2))          # 20s, 40s, 80s
+  done
 }
 
 case "${1:-deploy}" in
