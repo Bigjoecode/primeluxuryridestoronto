@@ -294,19 +294,42 @@ fieldset { border: 0; margin: 0; padding: 0; min-width: 0; }
 .site-header {
   position: fixed; inset: 0 0 auto 0;
   z-index: var(--z-nav);
-  transition: background-color var(--t-slow) var(--ease),
-              backdrop-filter var(--t-slow) var(--ease),
-              border-color var(--t-slow) var(--ease),
+  transition: border-color var(--t-slow) var(--ease),
               padding var(--t-slow) var(--ease);
   border-bottom: 1px solid transparent;
   padding-block: var(--s-4);
 }
+
+/*
+ * The scrolled background lives on a pseudo-element, NOT on .site-header.
+ *
+ * backdrop-filter (like transform and filter) makes an element the
+ * containing block for its position:fixed descendants. The mobile nav
+ * sheet is fixed and lives inside the header, so putting the blur on the
+ * header itself re-anchored the sheet to the ~60px header box the moment
+ * the page was scrolled — "inset: auto 0 0 0" then meant "bottom of the
+ * header", dropping the menu into the middle of the screen where it could
+ * not be dismissed. A pseudo-element has no element descendants, so it
+ * carries the same visual effect without capturing the sheet.
+ */
+.site-header::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: transparent;
+  transition: background-color var(--t-slow) var(--ease),
+              backdrop-filter var(--t-slow) var(--ease);
+  pointer-events: none;
+}
 .site-header.is-scrolled {
+  border-bottom-color: var(--line);
+  padding-block: var(--s-3);
+}
+.site-header.is-scrolled::before {
   background: rgba(8, 7, 10, .82);
   -webkit-backdrop-filter: blur(18px) saturate(140%);
   backdrop-filter: blur(18px) saturate(140%);
-  border-bottom-color: var(--line);
-  padding-block: var(--s-3);
 }
 .nav { display: flex; align-items: center; justify-content: space-between; gap: var(--s-5); }
 
