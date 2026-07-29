@@ -86,6 +86,21 @@ RedirectMatch 403 ^/logs(/.*)?$
 RedirectMatch 403 ^/sql(/.*)?$
 RedirectMatch 403 ^/includes/.*\.php$
 
+# The site is deployed as a git checkout, so .git sits in the web root.
+# The dotfile rule below does NOT cover it: FilesMatch tests the filename
+# only, and "/.git/config" has the filename "config". Left open, anyone
+# could clone the entire history — including anything ever committed by
+# mistake. Directory-level rules are required.
+RedirectMatch 403 ^/\.git(/.*)?$
+RedirectMatch 403 ^/\.github(/.*)?$
+RedirectMatch 403 ^/\.vscode(/.*)?$
+RedirectMatch 403 ^/\.kilocode(/.*)?$
+
+# Deployment and documentation files that should never be served.
+<FilesMatch "^(\.gitignore|\.gitattributes|CONTENT\.md|GO-LIVE\.md|SETUP\.md|deploy\.sh)$">
+  Require all denied
+</FilesMatch>
+
 # Block script execution inside the uploads folder.
 <IfModule mod_rewrite.c>
   RewriteRule ^uploads/.*\.(php|phtml|phar|pl|py|cgi|sh)$ - [F,L]
